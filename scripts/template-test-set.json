@@ -1,0 +1,55 @@
+[
+  {
+    "id": 71518,
+    "note": "Pink graduation cap and ribbon, girl's name: girl. Lemons and flowers, botanical style.",
+    "expect": {
+      "occasion": "graduation",
+      "gender": "girl",
+      "themes": [
+        "Floral & Botanical"
+      ],
+      "assets": [
+        "lemon",
+        "flower",
+        "mortarboard",
+        "scroll"
+      ]
+    }
+  },
+  {
+    "id": 51312,
+    "note": "Watercolor unicorn with gold horn and pink roses, 'is turning Four': girl, kids birthday. Values from another tagging run; check by eye.",
+    "expect": {
+      "occasion": "birthday",
+      "milestone": 4,
+      "gender": "girl",
+      "assets": [
+        "unicorn",
+        "rose",
+        "heart"
+      ],
+      "styles": [
+        "watercolor"
+      ],
+      "colors": [
+        "pink",
+        "blue",
+        "purple",
+        "gold"
+      ],
+      "moods": [
+        "fun"
+      ],
+      "colorShades": [
+        "lavender"
+      ],
+      "extraOccasions": [
+        "kids birthday"
+      ],
+      "languages": [
+        "english"
+      ],
+      "hasPhoto": false
+    }
+  }
+]

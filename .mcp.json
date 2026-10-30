@@ -1,0 +1,46 @@
+{
+  "mcpServers": {
+    "next-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "next-devtools-mcp@latest"
+      ],
+      "cwd": ".",
+      "disabled": false,
+      "autoApprove": []
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "shadcn@latest",
+        "mcp"
+      ],
+      "cwd": ".",
+      "disabled": false,
+      "autoApprove": []
+    },
+    "mastra-docs": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mastra/mcp-docs-server@latest"
+      ],
+      "cwd": ".",
+      "disabled": false,
+      "autoApprove": []
+    },
+    "project-db": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "--env-file=.env",
+        "scripts/mcp/db-readonly.ts"
+      ],
+      "cwd": ".",
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
