@@ -48,7 +48,7 @@ async function ReportDetail({ params }: { params: PageProps<'/search/report/[id]
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{report.query}</h1>
-              <Badge variant="secondary">Phase 2</Badge>
+              <Badge variant="secondary">Phase {report.phase}</Badge>
             </div>
             <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
               <span>First {REPORT_LIMIT} results</span>

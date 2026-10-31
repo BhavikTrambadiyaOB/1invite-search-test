@@ -25,7 +25,7 @@ export function parseSearchParams(params: RawParams): SearchState {
   const photo = first(params.photo)
   return {
     query: first(params.q).slice(0, 200),
-    page: Math.max(1, Math.min(100, Number.parseInt(first(params.page), 10) || 1)),
+    page: Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Number.parseInt(first(params.page), 10) || 1)),
     debug: first(params.debug) === '1',
     ignore: list(params.ignore).slice(0, 20),
     filters: {

@@ -1,7 +1,7 @@
 import Link from 'next/link'
-import { ReportFeedbackSummary } from '@/components/search/report-feedback-summary'
 import { Pagination } from '@/components/search/pagination'
 import { ReportQueryTags } from '@/components/search/report-query-tags'
+import { ReportFeedbackCell } from '@/components/search/report-feedback-cell'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -47,29 +47,6 @@ function FeedbackBadges({ feedback }: { feedback: ReportFeedback | null }) {
   )
 }
 
-function FeedbackCell({ feedback }: { feedback: ReportFeedback | null }) {
-  if (!feedback) {
-    return <Badge variant="outline">Missing</Badge>
-  }
-
-  return (
-    <details className="group">
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-1.5">
-        <FeedbackBadges feedback={feedback} />
-        <span className="text-muted-foreground text-xs underline-offset-4 group-open:hidden">
-          Show answers
-        </span>
-        <span className="text-muted-foreground hidden text-xs underline-offset-4 group-open:inline">
-          Hide answers
-        </span>
-      </summary>
-      <div className="mt-2 w-[min(42rem,70vw)] min-w-72">
-        <ReportFeedbackSummary feedback={feedback} />
-      </div>
-    </details>
-  )
-}
-
 /** Paginated table of stored reports. Feedback expands in place so all six answers stay on this page. */
 export function ReportTable({
   reports,
@@ -77,12 +54,16 @@ export function ReportTable({
   totalPages,
   total,
   pageSize,
+  hrefForPage,
+  hasActiveFilters,
 }: {
   reports: Array<ReportRow & { tags: QueryTag[] }>
   page: number
   totalPages: number
   total: number
   pageSize: number
+  hrefForPage: (page: number) => string
+  hasActiveFilters: boolean
 }) {
   const first = total === 0 ? 0 : (page - 1) * pageSize + 1
   const last = Math.min(page * pageSize, total)
@@ -91,7 +72,9 @@ export function ReportTable({
     <div className="flex flex-col gap-3">
       {reports.length === 0 ? (
         <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm md:hidden">
-          No saved queries yet. Run the snapshot command above, then reload this page.
+          {hasActiveFilters
+            ? 'No reports match these filters. Adjust or clear the filters above.'
+            : 'No saved queries yet. Run the snapshot command above, then reload this page.'}
         </p>
       ) : (
         <ul className="flex flex-col gap-2 md:hidden">
@@ -114,6 +97,11 @@ export function ReportTable({
                 </div>
 
                 <ReportQueryTags query={report.query} tags={report.tags} />
+
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Phase</span>
+                  <Badge variant="secondary">{report.phase}</Badge>
+                </div>
 
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   <div>
@@ -148,23 +136,26 @@ export function ReportTable({
         </ul>
       )}
 
-      <div className="hidden overflow-hidden rounded-lg border md:block">
-        <Table>
+      <div className="hidden rounded-lg border md:block">
+        <Table className="table-fixed min-w-[1040px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Query</TableHead>
-              <TableHead>Live results</TableHead>
-              <TableHead>Current results</TableHead>
-              <TableHead>Feedback</TableHead>
-              <TableHead>Saved</TableHead>
-              <TableHead className="pr-4 text-right">Report</TableHead>
+              <TableHead className="w-[23%] pl-4">Query</TableHead>
+              <TableHead className="w-[7%]">Phase</TableHead>
+              <TableHead className="w-[10%]">Live results</TableHead>
+              <TableHead className="w-[12%]">Current results</TableHead>
+              <TableHead className="w-[27%]">Feedback</TableHead>
+              <TableHead className="w-[14%]">Saved</TableHead>
+              <TableHead className="w-[7%] pr-4 text-right">Report</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {reports.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground h-24 text-center">
-                  No saved queries yet. Run the snapshot command above, then reload this page.
+                <TableCell colSpan={7} className="text-muted-foreground h-24 text-center">
+                  {hasActiveFilters
+                    ? 'No reports match these filters. Adjust or clear the filters above.'
+                    : 'No saved queries yet. Run the snapshot command above, then reload this page.'}
                 </TableCell>
               </TableRow>
             ) : (
@@ -180,6 +171,9 @@ export function ReportTable({
                     <ReportQueryTags query={report.query} tags={report.tags} />
                   </TableCell>
                   <TableCell className="py-3">
+                    <Badge variant="secondary">{report.phase}</Badge>
+                  </TableCell>
+                  <TableCell className="py-3">
                     <div className="flex items-center gap-1.5">
                       <span className="tabular-nums">{countLabel(report.liveCount, report.liveTotal)}</span>
                       {report.liveError && <Badge variant="destructive">Error</Badge>}
@@ -191,8 +185,8 @@ export function ReportTable({
                       {report.currentError && <Badge variant="destructive">Error</Badge>}
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-96 py-3 whitespace-normal">
-                    <FeedbackCell feedback={report.feedback} />
+                  <TableCell className="py-3 whitespace-normal">
+                    <ReportFeedbackCell feedback={report.feedback} query={report.query} />
                   </TableCell>
                   <TableCell className="text-muted-foreground py-3 text-xs">
                     {formatReportDate(report.feedback?.updatedAt ?? report.updatedAt)}
@@ -220,7 +214,7 @@ export function ReportTable({
           page={page}
           totalPages={totalPages}
           label="Report pages"
-          hrefForPage={(nextPage) => (nextPage <= 1 ? '/search/report' : `/search/report?page=${nextPage}`)}
+          hrefForPage={hrefForPage}
         />
       </div>
     </div>

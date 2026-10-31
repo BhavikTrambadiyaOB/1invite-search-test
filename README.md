@@ -86,12 +86,23 @@ npm run search:report:snapshot -- "5th Wedding Anniversary" "Dinner Invitation"
 npm run search:report:snapshot -- --file queries.txt
 npm run search:report:snapshot -- --csv "1invites_user_search - Occasion_Wise.csv"
 npm run search:report:snapshot -- --from-import --limit 10
+npm run search:report:snapshot -- --phase=2 --limit=10 # run/resume 10 Phase 2 queries
+npm run search:report:snapshot -- --phase=2 --limit=50 # continue with the next 50
+npm run search:report:snapshot -- --phase=2 --limit=100
+npm run search:report:snapshot -- --phase=2            # capture all remaining Phase 2 queries
 npm run search:report:snapshot -- --refresh   # rerun every stored report query
 ```
 
 The occasion-wise CSV keeps its column name as the query's occasion in `search_report_import`. Importing does not
 run the queries; `--from-import` captures pending ones. The search report stores the first 40 live production results and the first 40 current-version results for each query,
-along with live suggested tags and tags produced by the current search logic. Set `LIVE_SEARCH_TOKEN` in `.env`; see
+along with live suggested tags and tags produced by the current search logic. Existing reports are assigned to phase 1.
+`--phase=N` resumes imported and stored queries not yet successfully captured in that phase, with up to three queries
+running concurrently. `--limit` caps each invocation; omit it to finish the remaining queries. A phase with no remaining
+queries reports that it is already complete. Requesting a phase beyond the next phase starts the next phase instead.
+Reports are stored separately per query and phase. If earlier runs replaced Phase 1 snapshots, rerun
+`npm run search:report:snapshot -- --phase=1` to capture them again; this creates fresh snapshots, not the historical ones.
+The report page can filter by query text, phase, imported occasion, feedback completion, and live/current capture errors.
+Set `LIVE_SEARCH_TOKEN` in `.env`; see
 `.env.example` for the other live API variables.
 
 AI (costs money; needs `OPENAI_API_KEY` and `SEARCH_AI_ENABLED=true`):

@@ -20,7 +20,7 @@ function Side({
   reason: string
 }) {
   return (
-    <div className="rounded-lg border p-3">
+    <div className="min-w-0 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-xs font-semibold">{label}</span>
         <Badge variant={resultVariant(result)}>{result ? REPORT_RESULT_LABELS[result] : 'No result answer'}</Badge>
@@ -28,7 +28,7 @@ function Side({
           Freshness issue: {freshnessIssue === null ? '—' : freshnessIssue ? 'Yes' : 'No'}
         </Badge>
       </div>
-      <p className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">
+      <p className="text-muted-foreground mt-2 text-xs break-words whitespace-pre-wrap">
         {reason.trim() || 'No reason added.'}
       </p>
     </div>

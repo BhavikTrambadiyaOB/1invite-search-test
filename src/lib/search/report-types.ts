@@ -58,6 +58,7 @@ export type ReportFeedback = {
 export type ReportRow = {
   id: string
   query: string
+  phase: number
   liveTotal: number | null
   currentTotal: number | null
   liveCount: number

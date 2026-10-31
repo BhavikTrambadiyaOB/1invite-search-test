@@ -119,6 +119,13 @@ export type TagGroup = 'occasions' | 'milestones' | 'genders' | 'themes' | 'asse
  */
 export type SuggestedTag = { group: TagGroup; value: string; label: string; count: number }
 
+/** How many search results match all query details, some of them, or only the occasion. */
+export type SearchMatchCounts = {
+  direct: number
+  partial: number
+  occasionOnly: number
+}
+
 /** A filter the user already chose, shown as a removable chip. */
 export type ActiveTag = { group: TagGroup | 'price' | 'orientation' | 'docTypes'; value: string; label: string }
 
@@ -133,6 +140,7 @@ export type SearchResponse = {
    * cards with 0 exact matches: a content gap, even though the page is not empty.
    */
   exactTotal: number
+  matchCounts: SearchMatchCounts
   page: number
   pageSize: number
   results: SearchResultItem[]

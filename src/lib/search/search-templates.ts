@@ -27,6 +27,16 @@ const FILTER_GROUPS = [
 ] as const
 type FilterGroup = (typeof FILTER_GROUPS)[number]
 
+const EXCLUDED_CATALOG_IDS = [1058, 1079, 1081, 1082, 1083, 1084, 1088, 2186] as const
+
+function catalogExclusion(templateAlias: string) {
+  return `not exists (
+    select 1 from images i
+     where i.id = ${templateAlias}.template_id
+       and i.catalog_id = any(array[${EXCLUDED_CATALOG_IDS.join(', ')}]::int[])
+  )`
+}
+
 /** Collects SQL parameters and returns their $n placeholders. */
 class Params {
   values: unknown[] = []
@@ -112,8 +122,9 @@ function activeTags(filters: SearchFilters, vocab: Awaited<ReturnType<typeof get
 /** Similarity of the closest template to the query (uses the vector index), or null without embeddings. */
 async function bestSimilarity(qvec: string): Promise<number | null> {
   const { rows } = await db.query<{ best: number }>(
-    `select 1 - (embedding <=> $1::vector) as best from template_search where embedding is not null
-      order by embedding <=> $1::vector limit 1`,
+    `select 1 - (t.embedding <=> $1::vector) as best from template_search t
+      where t.embedding is not null and ${catalogExclusion('t')}
+      order by t.embedding <=> $1::vector limit 1`,
     [qvec],
   )
   return rows[0] ? Number(rows[0].best) : null
@@ -152,7 +163,7 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
       }
     }
   }
-  const where: string[] = []
+  const where: string[] = [catalogExclusion('t')]
 
   // ---- What the query asks for -------------------------------------------
   const vocab = await getVocabulary()
@@ -213,12 +224,21 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // rest, the occasion included, rank.
   const anchored = !!occDef || formatAnchor
   const details: string[] = []
-  const detail = (condition: string) => (anchored ? details.push(condition) : where.push(condition))
+  const requestedChecks: string[] = []
+  const detail = (condition: string) => {
+    requestedChecks.push(condition)
+    if (anchored) details.push(condition)
+    else where.push(condition)
+  }
   if (occDef && weakOccasion) details.push(`(${inOccasions(p.add(occasionFamily(occDef.id)))} or search_vector @@ ${tsAny(p, occDef.phrases)})`)
 
   // Without an occasion, a different printed milestone is wrong ("50th" card for "5th").
-  if (intent.milestone && !anchored) where.push(`(milestone is null or milestone = ${p.add(intent.milestone)})`)
-  if (intent.milestone && anchored) details.push(`(milestone = ${p.add(intent.milestone)})`)
+  if (intent.milestone) {
+    const milestoneMatch = `(milestone = ${p.add(intent.milestone)})`
+    requestedChecks.push(milestoneMatch)
+    if (anchored) details.push(milestoneMatch)
+    else where.push(`(milestone is null or milestone = ${p.add(intent.milestone)})`)
+  }
 
   const themeOrAsset: string[] = []
   for (const theme of intent.themes) {
@@ -233,13 +253,17 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // Gender: drop templates made for the other gender; keep gender-neutral ones (they can be edited).
   if (intent.gender === 'girl' || intent.gender === 'boy') {
     where.push(`coalesce(gender, 'neutral') <> ${p.add(intent.gender === 'girl' ? 'boy' : 'girl')}`)
+    requestedChecks.push(`coalesce(gender = ${p.add(intent.gender)}, false)`)
   }
   for (const color of intent.colors) {
     detail(`(colors @> array[${p.add(color)}]::text[] or search_vector @@ ${tsAny(p, defsPhrases(COLOR_BY_ID.get(color)))})`)
   }
   if (intent.format) {
     const condition = `(format = ${p.add(intent.format)} or search_vector @@ ${tsAny(p, defsPhrases(FORMAT_BY_ID.get(intent.format)))})`
-    if (formatAnchor) where.push(condition)
+    if (formatAnchor) {
+      requestedChecks.push(condition)
+      where.push(condition)
+    }
     else detail(condition)
   }
   // Card type, photo and language are details too: "eid wishes" shows Eid greetings first, then other Eid
@@ -248,6 +272,8 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   if (intent.docType) detail(`(doc_type = ${p.add(intent.docType)})`)
   if (intent.hasPhoto) detail('has_photo')
   if (intent.language) detail(`(languages @> array[${p.add(intent.language)}]::text[])`)
+  for (const style of intent.styles) requestedChecks.push(`(styles @> array[${p.add(style)}]::text[])`)
+  for (const mood of intent.moods) requestedChecks.push(`(moods @> array[${p.add(mood)}]::text[])`)
   if (intent.isFree !== null && !filters.price) where.push(`is_free = ${p.add(intent.isFree)}`)
 
   const structured =
@@ -266,7 +292,13 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // Wording the vocabulary has no term for ("timeline", "barn") still says what is wanted, with synonyms
   // (timeline = program = itinerary…). With an occasion, cards that have it rank first, like any detail.
   const concepts = keywordConcepts(normalizeQuery(query), keywords)
-  if (anchored) for (const forms of concepts) details.push(`search_vector @@ ${tsAny(p, forms)}`)
+  if (anchored) {
+    for (const forms of concepts) {
+      const condition = `search_vector @@ ${tsAny(p, forms)}`
+      details.push(condition)
+      requestedChecks.push(condition)
+    }
+  }
 
   // Free-text query the rules could not map: require a text or fuzzy name match.
   const keywordOnly = !structured && keywords.length > 0
@@ -357,11 +389,18 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     ? `(case when ${inOccasions(p.add(occasionFamily(occDef.id)))} then 2
              when ${ancestors.length ? `occasion = any(${p.add(ancestors)}::text[])` : 'false'} then 1 else 0 end)`
     : '0'
-  const detailChecks = [
-    ...details,
-    ...intent.alsoOccasions.map((o) => inOccasions(p.add(occasionFamily(o)))),
-  ]
+  const detailChecks = [...details]
+  for (const occasion of intent.alsoOccasions) {
+    const condition = inOccasions(p.add(occasionFamily(occasion)))
+    detailChecks.push(condition)
+    requestedChecks.push(condition)
+  }
   const detailHits = detailChecks.length ? detailChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ') : '0'
+  const requestedHits = requestedChecks.length
+    ? requestedChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ')
+    : '0'
+  const sameOccasion = occDef ? `coalesce(${inOccasions(p.add(occasionFamily(occDef.id)))}, false)` : 'false'
+  const directOccasionCheck = occDef ? 'same_occasion' : 'true'
   const milestoneState = intent.milestone
     ? `(case when milestone = ${p.add(intent.milestone)} then 2 when milestone is null then 1 else 0 end)`
     : '0'
@@ -390,10 +429,11 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
              gender, themes, assets, styles, colors, doc_type, format, moods, extra_occasions, languages, has_photo,
              ${relevance} as relevance, ${freshness} as freshness, quality_score as quality,
              ${milestoneBonus} + ${alsoBonus} + ${greetingBonus} as milestone_bonus, ${textRank} as text_rank, ${tier} as tier,
-             ${detailHits} as detail_hits, ${milestoneState} as milestone_state,
+             ${detailHits} as detail_hits, ${requestedHits} as requested_hits, ${sameOccasion} as same_occasion,
+             ${milestoneState} as milestone_state,
              ${selectionHits} as selection_hits, ${occasionWhere ? `coalesce(${occasionWhere}, false)` : 'true'} as on_occasion,
              ${FILTER_GROUPS.map((g) => `${filterFlags[g]} as f_${g}`).join(', ')}
-        from template_search
+        from template_search t
        ${where.length ? `where ${where.join('\n         and ')}` : ''}
     ),
     scored as (
@@ -423,6 +463,8 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
       (select count(*) from final)::int as total,
       (select count(*) from focus)::int as focus_total,
       (select count(*) from final where tier = ${occDef && !weakOccasion ? 2 : 0} and detail_hits = ${detailChecks.length})::int as exact_total,
+      (select count(*) from final where ${directOccasionCheck} and requested_hits = ${requestedChecks.length})::int as direct_count,
+      (select count(*) from final where same_occasion and ${requestedChecks.length > 0 ? 'requested_hits = 0' : 'false'})::int as occasion_only_count,
       (select coalesce(json_agg(json_build_object('g', g, 'id', v, 'count', c)), '[]') from (
          select 'occasion' g, o v, count(*)::int c from focus, unnest(array_remove(array[occasion] || extra_occasions, null)) o group by o
          union all select 'themes', v, count(*)::int from focus, unnest(themes) v group by v
@@ -597,6 +639,11 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     appliedOccasion: strictOccasion?.id ?? null,
     total: row.total,
     exactTotal: row.exact_total,
+    matchCounts: {
+      direct: row.direct_count,
+      partial: row.total - row.direct_count - row.occasion_only_count,
+      occasionOnly: row.occasion_only_count,
+    },
     page,
     pageSize,
     results,

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_OPTIONS='--max-old-space-size=2048' next dev",
     "mastra:dev": "mastra dev --env .env",
     "mastra:studio": "mastra studio --port 4000 --server-port 3000 --server-api-prefix /api",
     "build": "next build",

@@ -4,7 +4,7 @@ import { db } from '../db'
  * Failed-query detection.
  *
  * Searches are judged per visit: one session searching one query, including the tag taps, filters and pages
- * that refine it. A visit succeeds when the user opens a template ("Use this template") within 30 minutes.
+ * that refine it. A visit succeeds when the app records a template-use action within 30 minutes.
  * Otherwise it fails if any of these happen:
  *   zero_results       nothing matched
  *   no_exact_match     results are shown, but none fit the occasion and every asked detail
@@ -44,6 +44,12 @@ export type FailedQuery = {
   avgResults: number
   /** Average results fitting every asked detail; null for searches logged before this was recorded. */
   avgExact: number | null
+  /** Average relevance score of the best result per visit, from 0 to 1. */
+  avgRelevance: number | null
+  /** Average counts per visit; null for searches logged before match breakdowns were added. */
+  avgDirect: number | null
+  avgPartial: number | null
+  avgOccasionOnly: number | null
   unknownWords: string[]
   exampleIntent: Record<string, unknown> | null
   lastSearchedAt: string
@@ -72,6 +78,9 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
               (array_agg(intent order by created_at))[1] as intent,
               (array_agg(result_count order by created_at))[1] as result_count,
               (array_agg(exact_count order by created_at))[1] as exact_count,
+              (array_agg(direct_count order by created_at))[1] as direct_count,
+              (array_agg(partial_count order by created_at))[1] as partial_count,
+              (array_agg(occasion_only_count order by created_at))[1] as occasion_only_count,
               (array_agg(top_score order by created_at))[1] as top_score,
               bool_or(cardinality(ignored) > 0) as removed_reading
          from numbered
@@ -111,6 +120,10 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
               count(*) filter (where not opened and cardinality(reasons) > 0)::int as failures,
               avg(result_count)::real as avg_results,
               avg(exact_count)::real as avg_exact,
+              avg(direct_count)::real as avg_direct,
+              avg(partial_count)::real as avg_partial,
+              avg(occasion_only_count)::real as avg_occasion_only,
+              avg(top_score)::real as avg_relevance,
               bool_or(removed_reading and not opened) as removed_reading,
               max(ended_at) as last_searched_at
          from judged
@@ -164,8 +177,12 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
       priority: Number(r.priority.toFixed(3)),
       reasons: r.reasons,
       gapType: understood && words.length === 0 && !r.removed_reading ? 'content_gap' : 'search_gap',
-      avgResults: Math.round(r.avg_results),
-      avgExact: r.avg_exact === null ? null : Math.round(r.avg_exact),
+      avgResults: Number(r.avg_results),
+      avgExact: r.avg_exact === null ? null : Number(r.avg_exact),
+      avgRelevance: r.avg_relevance === null ? null : Number(r.avg_relevance),
+      avgDirect: r.avg_direct === null ? null : Number(r.avg_direct),
+      avgPartial: r.avg_partial === null ? null : Number(r.avg_partial),
+      avgOccasionOnly: r.avg_occasion_only === null ? null : Number(r.avg_occasion_only),
       unknownWords: words,
       exampleIntent: intent,
       lastSearchedAt: new Date(r.last_searched_at).toISOString(),

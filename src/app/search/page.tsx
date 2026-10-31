@@ -74,6 +74,7 @@ async function SearchResults({ searchParams }: { searchParams: Params }) {
               intent: response.intent,
               resultCount: response.total,
               exactCount: response.exactTotal,
+              matchCounts: response.matchCounts,
               topScore: response.results[0]?.debug.relevance ?? null,
               ignored: state.ignore,
             }}
@@ -94,6 +95,7 @@ async function SearchResults({ searchParams }: { searchParams: Params }) {
               intent: response.intent,
               resultCount: 0,
               exactCount: 0,
+              matchCounts: { direct: 0, partial: 0, occasionOnly: 0 },
               topScore: null,
               ignored: state.ignore,
             }}

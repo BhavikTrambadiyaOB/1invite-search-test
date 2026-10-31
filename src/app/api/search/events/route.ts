@@ -9,7 +9,7 @@ const bodySchema = z.object({
   position: z.number().int().min(1).optional(),
 })
 
-/** Records what the user did with a search result: click (preview), open (use template) or bounce. */
+/** Records a result preview click, an app-side template-use action, or a quick bounce. */
 export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid search event' }, { status: 400 })

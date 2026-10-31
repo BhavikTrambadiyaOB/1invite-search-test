@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
-import type { SearchFilters, SearchIntent } from '@/lib/search/types'
+import type { SearchFilters, SearchIntent, SearchMatchCounts } from '@/lib/search/types'
 
 export type SearchLogPayload = {
   query: string
@@ -11,6 +11,7 @@ export type SearchLogPayload = {
   resultCount: number
   /** Results that fit the occasion and every asked detail. */
   exactCount: number
+  matchCounts: SearchMatchCounts
   topScore: number | null
   /** Parts of the query reading the user removed from the "Showing" tags. */
   ignored: string[]
@@ -40,7 +41,7 @@ function getSessionId() {
 
 /**
  * Logs the search once it is actually shown (not on prefetch or server re-render),
- * and records clicks, opens and quick bounces on its results.
+ * and records result clicks and quick bounces. The app can record template use separately.
  */
 export function SearchSession({ payload, children }: { payload: SearchLogPayload; children: React.ReactNode }) {
   const key = useMemo(() => JSON.stringify(payload), [payload])

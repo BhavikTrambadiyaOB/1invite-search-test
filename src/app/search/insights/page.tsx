@@ -7,7 +7,7 @@ import { SearchNav } from '@/components/search/search-nav'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { db } from '@/lib/db'
-import { getFailedQueries } from '@/lib/search/failed-queries'
+import { FAILURE_RULES, getFailedQueries, type FailedQuery } from '@/lib/search/failed-queries'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
@@ -28,6 +28,64 @@ const REASON_LABELS: Record<string, string> = {
   no_click: 'No click',
 }
 
+function formatAverage(value: number | null) {
+  if (value === null) return '–'
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function collectionDirection(query: FailedQuery) {
+  if (query.gapType === 'search_gap') {
+    const terms = query.unknownWords.length > 0 ? query.unknownWords.join(', ') : 'the query wording'
+    return `Teach search to recognize ${terms}.`
+  }
+
+  const intent = query.exampleIntent
+  const focus: string[] = []
+  const add = (value: unknown) => {
+    if (typeof value === 'string' && value.trim()) focus.push(value.replace(/_/g, ' '))
+  }
+  const addMany = (value: unknown) => {
+    if (Array.isArray(value)) value.forEach(add)
+  }
+
+  add(intent?.occasion)
+  addMany(intent?.alsoOccasions)
+  add(intent?.milestone ? `${intent.milestone} milestone` : null)
+  addMany(intent?.themes)
+  addMany(intent?.assets)
+  addMany(intent?.styles)
+  addMany(intent?.colors)
+  addMany(intent?.moods)
+  add(intent?.format)
+  add(intent?.docType)
+  add(intent?.gender)
+  add(intent?.language)
+  addMany(intent?.keywords)
+  if (intent?.hasPhoto === true) add('photo')
+  if (intent?.hasPhoto === false) add('without photo')
+
+  const collectionFocus = [...new Set(focus)].slice(0, 5).join(', ') || query.exampleQuery
+  const directMatches = query.avgDirect
+  const coverageCount = directMatches ?? query.avgExact
+  if (coverageCount === null) {
+    return `Check coverage for ${collectionFocus}; exact-match data is unavailable for this period.`
+  }
+  const coverageLabel = directMatches === null
+    ? `${formatAverage(coverageCount)} legacy exact-match ${coverageCount === 1 ? 'result' : 'results'}`
+    : `${formatAverage(coverageCount)} direct ${coverageCount === 1 ? 'template' : 'templates'}`
+  if (coverageCount >= FAILURE_RULES.fewExactMatches) {
+    if (query.avgRelevance !== null && query.avgRelevance < FAILURE_RULES.lowRelevance) {
+      return `Improve search relevance for ${collectionFocus}; there are ${coverageLabel} per visit on average, but the best matches score weakly.`
+    }
+    if (query.avgRelevance === null) {
+      return `Review match quality for ${collectionFocus}; there are ${coverageLabel} per visit on average, but relevance data is unavailable.`
+    }
+    return `Coverage looks strong for ${collectionFocus} (${coverageLabel} per visit); review why users did not choose a result before expanding the collection.`
+  }
+
+  return `Add or enrich templates for ${collectionFocus}; average coverage is ${coverageLabel} per visit.`
+}
+
 export default function InsightsPage({ searchParams }: PageProps<'/search/insights'>) {
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:py-8">
@@ -42,12 +100,15 @@ export default function InsightsPage({ searchParams }: PageProps<'/search/insigh
         </div>
         <p className="text-muted-foreground max-w-3xl text-sm">
           Searches where nobody chose a template, counted once per visit (a session searching a query, with its tag
-          taps and filters). Ranked by visits × failure rate. <strong className="text-foreground font-medium">Exact</strong>{' '}
-          counts results that fit the occasion and every detail asked: “dinosaur wedding” can show many wedding cards
-          and still have no exact match.{' '}
+          taps and filters). Ranked by visits × failure rate. Match counts are averages per visit: <strong className="text-foreground font-medium">Direct</strong>{' '}
+          matches every requested detail, <strong className="text-foreground font-medium">Partial</strong> matches some details or a broader related occasion, and{' '}
+          <strong className="text-foreground font-medium">Occasion only</strong> matches the requested occasion without its other details.{' '}
+          <strong className="text-foreground font-medium">Templates</strong> is the average result count;{' '}
+          <strong className="text-foreground font-medium">Top relevance</strong> is the average 0–100 relevance score of each visit’s best result; higher means a stronger match. “Dinosaur wedding” can show many wedding
+          cards and still have no exact match.{' '}
           <strong className="text-foreground font-medium">Content gap</strong>: the search was understood, but designs are
           missing or not good enough. <strong className="text-foreground font-medium">Search gap</strong>: the search was
-          not understood, so a synonym or rule is needed.
+          not understood, so a synonym or rule is needed. Collection direction suggests what to add or improve. Match counts are unavailable for older searches logged before this breakdown was added.
         </p>
       </header>
       <Suspense fallback={<Skeleton className="h-96 w-full" />}>
@@ -120,8 +181,12 @@ async function Report({ searchParams }: { searchParams: PageProps<'/search/insig
                 <th className="px-3 py-2 font-medium">Gap</th>
                 <th className="px-3 py-2 text-right font-medium">Visits</th>
                 <th className="px-3 py-2 text-right font-medium">Failed</th>
-                <th className="px-3 py-2 text-right font-medium">Avg results</th>
-                <th className="px-3 py-2 text-right font-medium">Exact</th>
+                <th className="px-3 py-2 text-right font-medium">Templates</th>
+                <th className="px-3 py-2 text-right font-medium">Direct</th>
+                <th className="px-3 py-2 text-right font-medium">Partial</th>
+                <th className="px-3 py-2 text-right font-medium">Occasion only</th>
+                <th className="px-3 py-2 text-right font-medium">Top relevance</th>
+                <th className="px-3 py-2 font-medium">Collection direction</th>
                 <th className="px-3 py-2 font-medium">Why</th>
               </tr>
             </thead>
@@ -146,8 +211,14 @@ async function Report({ searchParams }: { searchParams: PageProps<'/search/insig
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.searches}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.failureRate * 100)}%</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{r.avgResults}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{r.avgExact ?? '–'}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgResults)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgDirect)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgPartial)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgOccasionOnly)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {r.avgRelevance === null ? '–' : `${Math.round(r.avgRelevance * 100)}%`}
+                  </td>
+                  <td className="text-muted-foreground max-w-64 px-3 py-2 text-xs">{collectionDirection(r)}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(r.reasons).map(([reason, count]) => (

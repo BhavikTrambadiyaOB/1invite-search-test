@@ -399,14 +399,19 @@ export async function captureCurrentReport(query: string): Promise<ReportCapture
 }
 
 /** Stores (or replaces) one query's live and current snapshots. */
-export async function saveSearchReport(query: string, live: ReportCapture, current: ReportCapture) {
+export async function saveSearchReport(
+  query: string,
+  live: ReportCapture,
+  current: ReportCapture,
+  phase?: number,
+) {
   const normalized = normalizeQuery(query) || query.trim().toLowerCase()
   const { rows } = await db.query<{ id: string }>(
     `insert into search_report
-       (query, normalized_query, live_snapshot, current_snapshot, live_error, current_error,
+       (query, normalized_query, phase, live_snapshot, current_snapshot, live_error, current_error,
         live_total, current_total, live_count, current_count, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-     on conflict (normalized_query) do update set
+     values ($1, $2, coalesce($3::integer, 1), $4, $5, $6, $7, $8, $9, $10, $11, now())
+     on conflict (normalized_query, phase) do update set
        query = excluded.query,
        live_snapshot = excluded.live_snapshot,
        current_snapshot = excluded.current_snapshot,
@@ -421,6 +426,7 @@ export async function saveSearchReport(query: string, live: ReportCapture, curre
     [
       query.trim(),
       normalized,
+      phase ?? null,
       live.snapshot ? JSON.stringify(live.snapshot) : null,
       current.snapshot ? JSON.stringify(current.snapshot) : null,
       live.error,
@@ -513,6 +519,7 @@ function mapRow(row: JsonRecord): ReportRow {
   return {
     id: String(row.id),
     query: asString(row.query),
+    phase: asNumber(row.phase) ?? 1,
     liveTotal: asNumber(row.live_total),
     currentTotal: asNumber(row.current_total),
     liveCount: asNumber(row.live_count) ?? 0,
@@ -525,7 +532,7 @@ function mapRow(row: JsonRecord): ReportRow {
   }
 }
 
-const ROW_COLUMNS = `r.id, r.query, r.live_total, r.current_total, r.live_count, r.current_count,
+const ROW_COLUMNS = `r.id, r.query, r.phase, r.live_total, r.current_total, r.live_count, r.current_count,
   r.live_error, r.current_error, r.created_at, r.updated_at,
   f.live_result, f.live_freshness_issue, f.live_reason,
   f.current_result, f.current_freshness_issue, f.current_reason, f.updated_at as feedback_updated_at`
@@ -541,6 +548,91 @@ export type SearchReportPage = {
   totalPages: number
 }
 
+export type ReportFeedbackFilter = 'unreviewed' | 'incomplete' | 'complete'
+export type ReportErrorFilter = 'any' | 'live' | 'current'
+
+export type SearchReportFilters = {
+  query?: string
+  phase?: number
+  occasion?: string
+  feedback?: ReportFeedbackFilter
+  error?: ReportErrorFilter
+}
+
+export type SearchReportFilterOptions = {
+  phases: Array<{ phase: number; count: number }>
+  occasions: string[]
+}
+
+export async function getSearchReportFilterOptions(): Promise<SearchReportFilterOptions> {
+  const [phaseRows, occasionRows] = await Promise.all([
+    db.query<{ phase: number; count: number }>(
+      'select phase, count(*)::int as count from search_report group by phase order by phase',
+    ),
+    db.query<{ occasion: string }>(
+      `select distinct occasion
+         from search_report_import
+        where occasion <> ''
+        order by occasion`,
+    ),
+  ])
+  return { phases: phaseRows.rows, occasions: occasionRows.rows.map((row) => row.occasion) }
+}
+
+function reportWhere(filters: SearchReportFilters) {
+  const conditions: string[] = []
+  const values: unknown[] = []
+  const add = (condition: (parameter: string) => string, value: unknown) => {
+    values.push(value)
+    conditions.push(condition(`$${values.length}`))
+  }
+
+  if (filters.query) add((parameter) => `r.query ilike ${parameter}`, `%${filters.query}%`)
+  if (filters.phase !== undefined) add((parameter) => `r.phase = ${parameter}`, filters.phase)
+  if (filters.occasion) {
+    add(
+      (parameter) => `exists (
+        select 1
+          from search_report_import i
+          where (
+            i.normalized_query = r.normalized_query or
+            lower(regexp_replace(trim(i.query), '[[:space:]]+', ' ', 'g')) =
+              lower(regexp_replace(trim(r.query), '[[:space:]]+', ' ', 'g'))
+          )
+            and i.occasion = ${parameter}
+      )`,
+      filters.occasion,
+    )
+  }
+  if (filters.feedback === 'unreviewed') {
+    conditions.push('f.report_id is null')
+  } else if (filters.feedback === 'incomplete') {
+    conditions.push(
+      `f.report_id is not null and (
+        f.live_result is null or f.live_freshness_issue is null or
+        f.current_result is null or f.current_freshness_issue is null
+      )`,
+    )
+  } else if (filters.feedback === 'complete') {
+    conditions.push(
+      `f.live_result is not null and f.live_freshness_issue is not null and
+       f.current_result is not null and f.current_freshness_issue is not null`,
+    )
+  }
+  if (filters.error === 'any') {
+    conditions.push('(r.live_error is not null or r.current_error is not null)')
+  } else if (filters.error === 'live') {
+    conditions.push('r.live_error is not null')
+  } else if (filters.error === 'current') {
+    conditions.push('r.current_error is not null')
+  }
+
+  return {
+    sql: conditions.length > 0 ? `where ${conditions.join(' and ')}` : '',
+    values,
+  }
+}
+
 /**
  * One page of stored reports, newest feedback first. The requested page is clamped to the
  * last page so an out-of-range URL still shows rows instead of an empty table.
@@ -548,13 +640,20 @@ export type SearchReportPage = {
 export async function listSearchReports({
   page = 1,
   pageSize = REPORT_PAGE_SIZE,
+  filters = {},
 }: {
   page?: number
   pageSize?: number
+  filters?: SearchReportFilters
 } = {}): Promise<SearchReportPage> {
   const size = Math.min(Math.max(Math.trunc(pageSize) || REPORT_PAGE_SIZE, 1), 100)
+  const where = reportWhere(filters)
   const { rows: countRows } = await db.query<{ count: number }>(
-    'select count(*)::int as count from search_report',
+    `select count(*)::int as count
+       from search_report r
+       left join search_report_feedback f on f.report_id = r.id
+       ${where.sql}`,
+    where.values,
   )
   const total = countRows[0]?.count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / size))
@@ -564,9 +663,10 @@ export async function listSearchReports({
     `select ${ROW_COLUMNS}
        from search_report r
        left join search_report_feedback f on f.report_id = r.id
+       ${where.sql}
       order by coalesce(f.updated_at, r.updated_at) desc, r.id desc
-      limit $1 offset $2`,
-    [size, (current - 1) * size],
+      limit $${where.values.length + 1} offset $${where.values.length + 2}`,
+    [...where.values, size, (current - 1) * size],
   )
   return { reports: rows.map(mapRow), total, page: current, pageSize: size, totalPages }
 }

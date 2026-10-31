@@ -30,11 +30,9 @@ function Preview({ item, className, sizes }: { item: SearchResultItem; className
 /** Shared preview body for the desktop modal and the mobile drawer. */
 function PreviewDetails({
   item,
-  onUse,
   onDetails,
 }: {
   item: SearchResultItem
-  onUse: () => void
   onDetails: () => void
 }) {
   return (
@@ -53,12 +51,8 @@ function PreviewDetails({
           ))}
         </div>
       )}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Button size="lg" onClick={onUse}>
-          Use this template
-        </Button>
-        <Button size="lg" variant="outline" asChild onClick={onDetails}>
-          {/* Opens as a modal over these results; back returns to the same page of results. */}
+      <div>
+        <Button size="lg" variant="outline" className="w-full" asChild onClick={onDetails}>
           <Link href={`/templates/${item.id}`} scroll={false}>
             See the details
           </Link>
@@ -72,15 +66,15 @@ export function ResultsGrid({ results, offset, debug }: { results: SearchResultI
   const track = useTrack()
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const [selected, setSelected] = useState<{ item: SearchResultItem; position: number } | null>(null)
-  const usedRef = useRef(false)
+  const continuedRef = useRef(false)
 
-  // While a preview is open, time it: closing it quickly without using the template is a bounce.
+  // Closing a preview quickly without opening its details counts as a bounce.
   useEffect(() => {
     if (!selected) return
     const openedAt = Date.now()
-    usedRef.current = false
+    continuedRef.current = false
     return () => {
-      if (!usedRef.current && Date.now() - openedAt < BOUNCE_MS) track(selected.item.id, 'bounce', selected.position)
+      if (!continuedRef.current && Date.now() - openedAt < BOUNCE_MS) track(selected.item.id, 'bounce', selected.position)
     }
   }, [selected, track])
 
@@ -93,16 +87,9 @@ export function ResultsGrid({ results, offset, debug }: { results: SearchResultI
     setSelected(null)
   }
 
-  function useTemplate() {
-    if (!selected) return
-    usedRef.current = true
-    track(selected.item.id, 'open', selected.position)
-    setSelected(null)
-  }
-
   function seeDetails() {
     // Opening the details shows interest, so closing the preview is not a bounce.
-    usedRef.current = true
+    continuedRef.current = true
     setSelected(null)
   }
 
@@ -157,7 +144,7 @@ export function ResultsGrid({ results, offset, debug }: { results: SearchResultI
                 {[selected.item.occasionLabel, selected.item.isFree ? 'Free' : 'PRO'].filter(Boolean).join(' · ')}
               </DialogDescription>
             </DialogHeader>
-            <PreviewDetails item={selected.item} onUse={useTemplate} onDetails={seeDetails} />
+            <PreviewDetails item={selected.item} onDetails={seeDetails} />
           </DialogContent>
         )}
       </Dialog>
@@ -177,7 +164,7 @@ export function ResultsGrid({ results, offset, debug }: { results: SearchResultI
               </DrawerClose>
             </DrawerHeader>
             <div className="flex flex-col gap-3 overflow-y-auto px-4 pb-6">
-              <PreviewDetails item={selected.item} onUse={useTemplate} onDetails={seeDetails} />
+              <PreviewDetails item={selected.item} onDetails={seeDetails} />
             </div>
           </DrawerContent>
         )}

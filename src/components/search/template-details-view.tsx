@@ -1,7 +1,9 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import { CircleHelpIcon } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { AUDIENCE_BY_ID, COLOR_BY_ID, DOC_TYPE_BY_ID, FORMAT_BY_ID, GENDER_BY_ID, LANGUAGE_BY_ID, MOOD_BY_ID } from '@/lib/search/taxonomy'
 import { getTemplateDetails } from '@/lib/search/template-details'
 import { getVocabulary, labelFor, type Vocabulary } from '@/lib/search/vocabulary'
@@ -93,13 +95,31 @@ export async function TemplateDetailsView({ id }: { id: string }) {
         </Block>
 
         <Block title="Search activity">
-          <Rows
-            rows={[
-              ['Previews', String(t.activity.clicks)],
-              ['Used', String(t.activity.opens)],
-              ['Quick bounces', String(t.activity.bounces)],
-            ]}
-          />
+          <TooltipProvider>
+            <Rows
+              rows={[
+                [
+                  'Previews',
+                  String(t.activity.clicks),
+                  'Counted each time someone opens this template preview from search results. This is interest in the preview, not confirmation that the template was used.',
+                ],
+                [
+                  'Used',
+                  String(t.activity.opens),
+                  'Counted when the app records a use event for this template. The search preview does not record this; the app must send the event.',
+                ],
+                [
+                  'Quick bounces',
+                  String(t.activity.bounces),
+                  'Counted when someone opens this preview and closes it within 5 seconds without opening the details. This can indicate the result was not a good fit.',
+                ],
+              ]}
+            />
+          </TooltipProvider>
+          <p className="text-muted-foreground text-xs">
+            These counts include tracked search activity only. A zero means no matching search event was recorded, not
+            that the template has never been used elsewhere.
+          </p>
           {t.activity.searches.length > 0 && (
             <p className="text-muted-foreground text-xs">
               Found through: {t.activity.searches.map((s) => `“${s.query}” (${s.count})`).join(', ')}
@@ -135,13 +155,29 @@ function Block({ title, note, children }: { title: string; note?: string; childr
   )
 }
 
-function Rows({ rows }: { rows: [string, string][] }) {
+function Rows({ rows }: { rows: [string, string, string?][] }) {
   return (
-    <dl className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
-      {rows.map(([k, v]) => (
+    <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 text-sm">
+      {rows.map(([k, v, description]) => (
         <div key={k} className="contents">
-          <dt className="text-muted-foreground">{k}</dt>
-          <dd className="break-words">{v}</dd>
+          <dt className="text-muted-foreground flex min-w-0 items-center gap-1">
+            {k}
+            {description && (
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  aria-label={`About ${k}`}
+                  className="inline-flex cursor-help rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <CircleHelpIcon className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-64 leading-relaxed">
+                  {description}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </dt>
+          <dd className="text-right font-medium tabular-nums">{v}</dd>
         </div>
       ))}
     </dl>
