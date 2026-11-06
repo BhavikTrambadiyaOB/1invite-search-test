@@ -1,4 +1,4 @@
-import { BarChart3Icon, ClipboardCheckIcon, SearchIcon } from 'lucide-react'
+import { BarChart3Icon, ClipboardCheckIcon, FileSearchIcon, SearchIcon } from 'lucide-react'
 import Link from 'next/link'
 
 const PAGES = [
@@ -7,6 +7,12 @@ const PAGES = [
     title: 'Template Search',
     description: 'Find the right template with filters and quick tags.',
     icon: SearchIcon,
+  },
+  {
+    href: '/templates',
+    title: 'Template Library',
+    description: 'Browse templates by name, ID, occasion, and metadata status.',
+    icon: FileSearchIcon,
   },
   {
     href: '/search/report',

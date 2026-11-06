@@ -62,6 +62,8 @@ export type SearchIntent = {
  * different groups combine with AND (floral and free).
  */
 export type SearchFilters = {
+  /** Occasion groups by id (parties, birthday…): every occasion in the group, also through "Also fits". */
+  groups?: string[]
   occasions?: string[]
   themes?: string[]
   styles?: string[]
@@ -106,12 +108,18 @@ export type SearchResultItem = {
   }
 }
 
-export type FacetValue = { id: string; label: string; count: number }
+export type FacetValue = {
+  id: string
+  label: string
+  count: number
+  /** How well these cards fit the search words on average (0–1), for ranking occasion chips. */
+  fit?: number
+}
 
 export type QuickTag = { occasion: string; label: string; count: number }
 
 /** The filter group a suggested tag sets. Values in a group combine with OR, groups with AND. */
-export type TagGroup = 'occasions' | 'milestones' | 'genders' | 'themes' | 'assets' | 'styles' | 'colors' | 'moods' | 'languages' | 'photo'
+export type TagGroup = 'groups' | 'occasions' | 'milestones' | 'genders' | 'themes' | 'assets' | 'styles' | 'colors' | 'moods' | 'languages' | 'photo'
 
 /**
  * A chip that narrows the current results ("Kids", "1st", "Dinosaurs", "With photo").

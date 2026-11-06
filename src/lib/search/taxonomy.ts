@@ -56,6 +56,14 @@ export const OCCASION_GROUPS = [
   'Greetings',
 ] as const
 
+/** URL-safe id of an occasion group: "Business & Community" → "business_community". */
+export function occasionGroupId(group: string): string {
+  return group.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '')
+}
+
+/** Occasion groups by id, for the "group" filter and its chips. */
+export const OCCASION_GROUP_BY_ID = new Map<string, string>(OCCASION_GROUPS.map((g) => [occasionGroupId(g), g]))
+
 // Words that mark an organisation (not a couple). Venue words such as church, hotel
 // or community center are left out because they often appear on wedding anniversary cards.
 const BUSINESS_WORDS = [

@@ -1,4 +1,5 @@
 import { db } from '../db'
+import { catalogExclusion } from './catalog-exclusion'
 import { RANKING } from './ranking'
 import { singularPhrase } from './singular'
 import { MILESTONE_BIRTHDAYS, OCCASION_AGES } from './taxonomy'
@@ -12,22 +13,23 @@ type CatalogCounts = { total: number; counts: Map<string, number> }
 let catalog: { value: Promise<CatalogCounts>; at: number } | null = null
 const CATALOG_TTL_MS = 10 * 60 * 1000
 
-/** Catalog-wide counts, so a chip can say how special a value is for this search. Cached for 10 minutes. */
+/** Catalog-wide counts (hidden catalogs left out), so a chip can say how special a value is for this search. Cached for 10 minutes. */
 function catalogCounts(): Promise<CatalogCounts> {
   if (catalog && performance.now() - catalog.at < CATALOG_TTL_MS) return catalog.value
   const value = db
     .query<{ k: string; c: number }>(
-      `select 'occasions:' || o k, count(*)::int c from template_search, unnest(array_remove(array[occasion] || extra_occasions, null)) o group by o
-       union all select 'themes:' || v, count(*)::int from template_search, unnest(themes) v group by v
-       union all select 'assets:' || v, count(*)::int from template_search, unnest(assets) v group by v
-       union all select 'styles:' || v, count(*)::int from template_search, unnest(styles) v group by v
-       union all select 'colors:' || v, count(*)::int from template_search, unnest(colors) v group by v
-       union all select 'moods:' || v, count(*)::int from template_search, unnest(moods) v group by v
-       union all select 'languages:' || v, count(*)::int from template_search, unnest(languages) v group by v
-       union all select 'genders:' || coalesce(gender, 'neutral'), count(*)::int from template_search group by gender
-       union all select 'milestones:' || milestone, count(*)::int from template_search where milestone is not null group by milestone
-       union all select 'photo:with', count(*)::int from template_search where has_photo
-       union all select 'total', count(*)::int from template_search`,
+      `with visible as (select * from template_search t where ${catalogExclusion('t')})
+       select 'occasions:' || o k, count(*)::int c from visible, unnest(array_remove(array[occasion] || extra_occasions, null)) o group by o
+       union all select 'themes:' || v, count(*)::int from visible, unnest(themes) v group by v
+       union all select 'assets:' || v, count(*)::int from visible, unnest(assets) v group by v
+       union all select 'styles:' || v, count(*)::int from visible, unnest(styles) v group by v
+       union all select 'colors:' || v, count(*)::int from visible, unnest(colors) v group by v
+       union all select 'moods:' || v, count(*)::int from visible, unnest(moods) v group by v
+       union all select 'languages:' || v, count(*)::int from visible, unnest(languages) v group by v
+       union all select 'genders:' || coalesce(gender, 'neutral'), count(*)::int from visible group by gender
+       union all select 'milestones:' || milestone, count(*)::int from visible where milestone is not null group by milestone
+       union all select 'photo:with', count(*)::int from visible where has_photo
+       union all select 'total', count(*)::int from visible`,
     )
     .then(({ rows }) => {
       const counts = new Map(rows.map((r) => [r.k, r.c]))
@@ -111,6 +113,7 @@ export async function suggestTags({
   // Values in a filter group are OR-ed, so a second "age" or "color" would widen the results, not narrow
   // them. Once an occasion is chosen, the next step is inside it (theme, boy/girl…), not a sibling occasion.
   const chosenIn: Record<TagGroup, number> = {
+    groups: filters.groups?.length ?? 0,
     occasions: filters.occasions?.length ?? 0,
     milestones: filters.milestones?.length ?? 0,
     genders: filters.genders?.length ?? 0,
@@ -124,6 +127,7 @@ export async function suggestTags({
   }
 
   const candidates: Candidate[] = []
+  const maxFit = Math.max(0, ...facets.occasion.map((o) => o.fit ?? 0))
   const consider = (group: TagGroup, values: FacetValue[], label: (v: FacetValue) => string = (v) => v.label) => {
     if (chosenIn[group] > 0) return
     const { weight } = cfg.groups[group]
@@ -138,7 +142,12 @@ export async function suggestTags({
       const balance = Math.sqrt(share) * (1 - share)
       // A kind of the searched occasion ("First Birthday" under Birthday) is the most natural next step.
       const familyBoost = group === 'occasions' && subOccasions.has(v.id) ? 1.5 : 1
-      candidates.push({ group, value: v.id, label: label(v), count: v.count, score: balance * Math.sqrt(lift) * weight * familyBoost })
+      // An occasion whose cards fit the search words better is the likelier next step (half the weight).
+      const fitBoost = v.fit !== undefined && maxFit > 0 ? 0.5 + (0.5 * v.fit) / maxFit : 1
+      candidates.push({
+        group, value: v.id, label: label(v), count: v.count,
+        score: balance * Math.sqrt(lift) * weight * familyBoost * fitBoost,
+      })
     }
   }
 

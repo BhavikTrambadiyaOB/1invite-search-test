@@ -1,14 +1,26 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { connection } from 'next/server'
+import { InfoIcon } from 'lucide-react'
 import { Suspense } from 'react'
 import { BackLink } from '@/components/search/back-link'
+import { Pagination } from '@/components/search/pagination'
 import { SearchNav } from '@/components/search/search-nav'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { db } from '@/lib/db'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { FAILURE_RULES, getFailedQueries, type FailedQuery } from '@/lib/search/failed-queries'
-import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
   title: 'Failed Queries',
@@ -16,6 +28,9 @@ export const metadata: Metadata = {
 }
 
 const RANGES = [1, 7, 30, 90] as const
+const PAGE_SIZE = 10
+const MIN_VISIT_OPTIONS = [1, 2, 5, 10] as const
+const SORT_OPTIONS = ['priority', 'visits', 'recent'] as const
 
 const REASON_LABELS: Record<string, string> = {
   zero_results: 'No results',
@@ -97,19 +112,94 @@ export default function InsightsPage({ searchParams }: PageProps<'/search/insigh
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">Failed queries</h1>
           <Badge variant="secondary">Phase 2</Badge>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label="About failed queries">
+                <InfoIcon />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85vh] w-[calc(100%-2rem)] sm:max-w-4xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>How to read failed queries</DialogTitle>
+                <DialogDescription>
+                  A quick guide to interpreting these searches and their match counts.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-5">
+                <Card className="gap-0 py-0">
+                  <CardHeader className="gap-1 px-4 py-4">
+                    <CardTitle>Match counts</CardTitle>
+                    <CardDescription>
+                      These are averages per visit, calculated from the first typed search before tag taps or filters.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 px-4 pb-4 sm:grid-cols-3">
+                    <div className="rounded-lg border p-3">
+                      <Badge>Direct</Badge>
+                      <p className="text-muted-foreground mt-2 text-sm">
+                        Matches the occasion, when recognized, and every recognized detail in the query.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <Badge variant="secondary">Partial</Badge>
+                      <p className="text-muted-foreground mt-2 text-sm">
+                        The remaining results after Direct and Occasion only are counted.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <Badge variant="outline">Occasion only</Badge>
+                      <p className="text-muted-foreground mt-2 text-sm">
+                        Matches the occasion, but none of the query’s other requested details.
+                      </p>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="text-muted-foreground border-t px-4 pt-3 pb-4 text-xs">
+                    Partial = Templates − Direct − Occasion only
+                  </CardFooter>
+                </Card>
+
+                <section className="flex flex-col gap-3" aria-labelledby="other-columns-heading">
+                  <h3 id="other-columns-heading" className="text-sm font-semibold">Other columns</h3>
+                  <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                    <div>
+                      <dt className="text-sm font-medium">Templates</dt>
+                      <dd className="text-muted-foreground text-sm">Average number of results returned per visit.</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium">Top relevance</dt>
+                      <dd className="text-muted-foreground text-sm">
+                        Average relevance score of the best result per visit. Higher means a stronger match.
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium">Content gap</dt>
+                      <dd className="text-muted-foreground text-sm">
+                        Search was understood, but suitable designs may be missing or need improvement.
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium">Search gap</dt>
+                      <dd className="text-muted-foreground text-sm">
+                        Search was not understood; a synonym or search rule may be needed.
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-sm font-medium">Collection direction</dt>
+                      <dd className="text-muted-foreground text-sm">
+                        A suggestion for what to add or improve. A query like “dinosaur wedding” may return many
+                        wedding templates but still have no exact match.
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <p className="text-muted-foreground border-t pt-3 text-xs">
+                  Match counts are unavailable for older searches logged before this breakdown was added.
+                </p>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
-        <p className="text-muted-foreground max-w-3xl text-sm">
-          Searches where nobody chose a template, counted once per visit (a session searching a query, with its tag
-          taps and filters). Ranked by visits × failure rate. Match counts are averages per visit: <strong className="text-foreground font-medium">Direct</strong>{' '}
-          matches every requested detail, <strong className="text-foreground font-medium">Partial</strong> matches some details or a broader related occasion, and{' '}
-          <strong className="text-foreground font-medium">Occasion only</strong> matches the requested occasion without its other details.{' '}
-          <strong className="text-foreground font-medium">Templates</strong> is the average result count;{' '}
-          <strong className="text-foreground font-medium">Top relevance</strong> is the average 0–100 relevance score of each visit’s best result; higher means a stronger match. “Dinosaur wedding” can show many wedding
-          cards and still have no exact match.{' '}
-          <strong className="text-foreground font-medium">Content gap</strong>: the search was understood, but designs are
-          missing or not good enough. <strong className="text-foreground font-medium">Search gap</strong>: the search was
-          not understood, so a synonym or rule is needed. Collection direction suggests what to add or improve. Match counts are unavailable for older searches logged before this breakdown was added.
-        </p>
       </header>
       <Suspense fallback={<Skeleton className="h-96 w-full" />}>
         <Report searchParams={searchParams} />
@@ -120,78 +210,148 @@ export default function InsightsPage({ searchParams }: PageProps<'/search/insigh
 
 async function Report({ searchParams }: { searchParams: PageProps<'/search/insights'>['searchParams'] }) {
   const sp = await searchParams
+  const param = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
   // The report covers the time up to now, so it is rendered per request, never prerendered.
   await connection()
-  const requested = Number(Array.isArray(sp.days) ? sp.days[0] : sp.days)
+  const requested = Number(param(sp.days))
   const days = (RANGES as readonly number[]).includes(requested) ? requested : 7
+  const query = param(sp.q)?.trim().slice(0, 200) ?? ''
+  const gap = param(sp.gap)
+  const gapFilter = gap === 'content_gap' || gap === 'search_gap' ? gap : ''
+  const rawMinVisits = Number(param(sp.minVisits))
+  const minVisits = (MIN_VISIT_OPTIONS as readonly number[]).includes(rawMinVisits) ? rawMinVisits : 1
+  const rawSort = param(sp.sort)
+  const sort = (SORT_OPTIONS as readonly string[]).includes(rawSort ?? '') ? rawSort! : 'priority'
+  const rawPage = Number(param(sp.page))
+  const requestedPage = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1
   const to = new Date()
   const from = new Date(to.getTime() - days * 86_400_000)
 
-  const [rows, totals] = await Promise.all([
-    getFailedQueries({ from, to, limit: 200 }),
-    db.query<{ searches: number; sessions: number }>(
-      // Visits, like the failure counts: one session searching one query (tag taps and filters included).
-      `select count(distinct (session_id, normalized_query))::int searches, count(distinct session_id)::int sessions
-         from search_log where created_at >= $1 and normalized_query <> ''`,
-      [from],
-    ),
-  ])
-  const failures = rows.reduce((sum, r) => sum + r.failures, 0)
-  const { searches, sessions } = totals.rows[0]
+  const rows = await getFailedQueries({ from, to, limit: null })
+  const filteredRows = rows
+    .filter((row) =>
+      (!query || row.exampleQuery.toLocaleLowerCase().includes(query.toLocaleLowerCase())) &&
+      (!gapFilter || row.gapType === gapFilter) &&
+      row.searches >= minVisits,
+    )
+  const sortedRows = [...filteredRows].sort((a, b) => {
+    if (sort === 'visits') return b.searches - a.searches || b.priority - a.priority
+    if (sort === 'recent') return b.lastSearchedAt.localeCompare(a.lastSearchedAt) || b.priority - a.priority
+    return b.priority - a.priority || b.searches - a.searches || b.lastSearchedAt.localeCompare(a.lastSearchedAt)
+  })
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE))
+  const page = Math.min(requestedPage, totalPages)
+  const pageRows = sortedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const paramsFor = (nextPage?: number) => {
+    const params = new URLSearchParams()
+    params.set('days', String(days))
+    if (query) params.set('q', query)
+    if (gapFilter) params.set('gap', gapFilter)
+    if (minVisits > 1) params.set('minVisits', String(minVisits))
+    if (sort !== 'priority') params.set('sort', sort)
+    if (nextPage && nextPage > 1) params.set('page', String(nextPage))
+    return `/search/insights?${params.toString()}`
+  }
+  const hasFilters = !!query || !!gapFilter || minVisits > 1 || sort !== 'priority'
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Last</span>
-        {RANGES.map((d) => (
-          <Link
-            key={d}
-            href={`/search/insights?days=${d}`}
-            className={cn('rounded-full border px-3 py-1', d === days ? 'bg-primary text-primary-foreground' : 'hover:bg-accent')}
+      <form
+        action="/search/insights"
+        method="get"
+        className="grid gap-3 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-6"
+        aria-label="Filter failed queries"
+      >
+        <label className="flex flex-col gap-1.5 text-sm font-medium">
+          Date range
+          <select
+            name="days"
+            defaultValue={String(days)}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
           >
-            {d === 1 ? '24 hours' : `${d} days`}
-          </Link>
-        ))}
-      </div>
-
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          ['Visits', searches],
-          ['Sessions', sessions],
-          ['Failed visits', failures],
-          ['Failure rate', searches ? `${Math.round((failures / searches) * 100)}%` : '–'],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-lg border p-4">
-            <dt className="text-muted-foreground text-xs">{label}</dt>
-            <dd className="text-2xl font-semibold tabular-nums">{value}</dd>
-          </div>
-        ))}
-      </dl>
-
-      {rows.length === 0 ? (
+            {RANGES.map((range) => (
+              <option key={range} value={range}>
+                {range === 1 ? 'Last 24 hours' : `Last ${range} days`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm font-medium">
+          Query
+          <Input name="q" type="search" defaultValue={query} placeholder="Filter queries" maxLength={200} />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm font-medium">
+          Gap type
+          <select
+            name="gap"
+            defaultValue={gapFilter}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="">All gaps</option>
+            <option value="content_gap">Content gap</option>
+            <option value="search_gap">Search gap</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm font-medium">
+          Minimum visits
+          <select
+            name="minVisits"
+            defaultValue={String(minVisits)}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            {MIN_VISIT_OPTIONS.map((count) => (
+              <option key={count} value={count}>
+                {count === 1 ? 'Any visits' : `${count}+ visits`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm font-medium">
+          Sort by
+          <select
+            name="sort"
+            defaultValue={sort}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="priority">Priority</option>
+            <option value="visits">Most visits</option>
+            <option value="recent">Recently searched</option>
+          </select>
+        </label>
+        <div className="flex items-end gap-2">
+          <Button type="submit">Apply filters</Button>
+          {hasFilters && (
+            <Button asChild variant="outline">
+              <Link href={`/search/insights?days=${days}`}>Clear</Link>
+            </Button>
+          )}
+        </div>
+      </form>
+      {pageRows.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-10 text-center text-sm">
-          No failed queries in this period. Searches made on the search page appear here.
+          {hasFilters
+            ? 'No failed queries match these filters. Adjust or clear the filters above.'
+            : 'No failed queries in this period. Searches made on the search page appear here.'}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
+        <TooltipProvider>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
             <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
               <tr>
                 <th className="px-3 py-2 font-medium">Query</th>
                 <th className="px-3 py-2 font-medium">Gap</th>
                 <th className="px-3 py-2 text-right font-medium">Visits</th>
-                <th className="px-3 py-2 text-right font-medium">Failed</th>
                 <th className="px-3 py-2 text-right font-medium">Templates</th>
                 <th className="px-3 py-2 text-right font-medium">Direct</th>
                 <th className="px-3 py-2 text-right font-medium">Partial</th>
                 <th className="px-3 py-2 text-right font-medium">Occasion only</th>
                 <th className="px-3 py-2 text-right font-medium">Top relevance</th>
-                <th className="px-3 py-2 font-medium">Collection direction</th>
                 <th className="px-3 py-2 font-medium">Why</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {pageRows.map((r) => (
                 <tr key={r.normalizedQuery} className="border-t align-top">
                   <td className="px-3 py-2">
                     <Link
@@ -210,7 +370,6 @@ async function Report({ searchParams }: { searchParams: PageProps<'/search/insig
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.searches}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.failureRate * 100)}%</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgResults)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgDirect)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgPartial)}</td>
@@ -218,22 +377,49 @@ async function Report({ searchParams }: { searchParams: PageProps<'/search/insig
                   <td className="px-3 py-2 text-right tabular-nums">
                     {r.avgRelevance === null ? '–' : `${Math.round(r.avgRelevance * 100)}%`}
                   </td>
-                  <td className="text-muted-foreground max-w-64 px-3 py-2 text-xs">{collectionDirection(r)}</td>
                   <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1">
-                      {Object.entries(r.reasons).map(([reason, count]) => (
-                        <span key={reason} className="bg-muted rounded px-1.5 py-0.5 text-xs">
-                          {REASON_LABELS[reason] ?? reason} · {count}
-                        </span>
-                      ))}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon-xs" aria-label="Collection direction">
+                            <InfoIcon />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-64 whitespace-normal text-left">
+                          <span className="font-semibold">Collection direction</span>
+                          <p>{collectionDirection(r)}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(r.reasons).map(([reason, count]) => (
+                          <span key={reason} className="bg-muted rounded px-1.5 py-0.5 text-xs">
+                            {REASON_LABELS[reason] ?? reason} · {count}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </TooltipProvider>
       )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-muted-foreground text-xs tabular-nums">
+          {sortedRows.length === 0
+            ? 'No failed queries'
+            : `Showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, sortedRows.length)} of ${sortedRows.length.toLocaleString()}`}
+        </p>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          label="Failed query pages"
+          hrefForPage={(nextPage) => paramsFor(nextPage)}
+        />
+      </div>
     </div>
   )
 }

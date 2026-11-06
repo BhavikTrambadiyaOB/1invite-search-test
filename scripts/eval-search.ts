@@ -6,10 +6,10 @@
 import { flushTracesAndClose } from './lib/close'
 import { searchTemplates } from '@/lib/search/search-templates'
 import { getVocabulary, occasionFamilyFrom } from '@/lib/search/vocabulary'
-import type { SearchResponse } from '@/lib/search/types'
+import type { SearchFilters, SearchResponse } from '@/lib/search/types'
 
 type Check = { label: string; pass: (r: SearchResponse) => boolean }
-type Case = { query: string; checks: Check[] }
+type Case = { query: string; filters?: SearchFilters; checks: Check[] }
 
 const TOP = 24
 
@@ -42,6 +42,14 @@ const topMilestone = (m: number, within: number): Check => ({
 const noOtherMilestone = (m: number): Check => ({
   label: `no template printed with a different milestone than ${m}`,
   pass: (r) => r.results.every((x) => x.milestone === null || x.milestone === m),
+})
+// Asked number first, then other printed numbers closest to it ("55th" before "20th" for "50th").
+const closestMilestoneFirst = (m: number): Check => ({
+  label: `${m} first, then printed milestones closest to ${m}`,
+  pass: (r) => {
+    const gaps = r.results.flatMap((x) => (x.milestone === null ? [] : [Math.abs(x.milestone - m)]))
+    return gaps.every((gap, i) => i === 0 || gap >= gaps[i - 1])
+  },
 })
 // A theme, a visible element (AI tagging lists butterflies as elements) or the word in the name.
 const allTheme = (theme: string): Check => ({
@@ -96,6 +104,19 @@ const occasionTagsFirst = (occasions: string[]): Check => ({
   },
 })
 
+// A query that names no event first asks what kind: occasion group chips ("Parties") lead the tag row.
+const groupTagsFirst = (groups: string[]): Check => ({
+  label: `tag row starts with event types incl. ${groups.join(', ')}`,
+  pass: (r) => {
+    const lead = r.suggestedTags.slice(0, r.suggestedTags.findIndex((t) => t.group !== 'groups' && t.group !== 'occasions'))
+    return lead.length > 1 && groups.every((g) => lead.some((t) => t.value === g))
+  },
+})
+const hasTag = (group: string, value: string): Check => ({
+  label: `a "${value}" tag`,
+  pass: (r) => r.suggestedTags.some((t) => t.group === group && t.value === value),
+})
+
 // With an occasion, card type, photo and language rank instead of filter: matching cards come first,
 // then the rest of the occasion. Checks the first page holds every exact match before any other card.
 const askedFirst = (label: string, has: (x: SearchResponse['results'][number]) => boolean): Check => ({
@@ -113,8 +134,13 @@ const allDocType = (docType: string): Check => ({
 
 const CASES: Case[] = [
   // The three examples from the requirements.
-  { query: '5th Wedding Anniversary', checks: [atLeast(5), onlyOccasion('wedding_anniversary'), noOccasion('company_anniversary'), topMilestone(5, 5), noOtherMilestone(5), noQuickTags] },
-  { query: 'Dinner Invitation', checks: [atLeast(50), quickTags(4), occasionTagsFirst(['birthday', 'wedding', 'christmas'])] },
+  { query: '5th Wedding Anniversary', checks: [atLeast(5), onlyOccasion('wedding_anniversary'), noOccasion('company_anniversary'), topMilestone(5, 5), closestMilestoneFirst(5), noQuickTags] },
+  { query: 'Dinner Invitation', checks: [atLeast(50), quickTags(4), groupTagsFirst(['birthday', 'wedding', 'holidays'])] },
+  { query: 'Dinner Invitation', filters: { groups: ['holidays'] }, checks: [atLeast(20), occasionTagsFirst(['thanksgiving', 'christmas'])] },
+  // Tags as a path: pizza → Parties → Kitty Party. A typed event never offers the events used to fill its page.
+  { query: 'pizza', checks: [groupTagsFirst(['parties'])] },
+  { query: 'pizza', filters: { groups: ['parties'] }, checks: [hasTag('occasions', 'kitty_party'), noTag('occasions', 'kids_birthday')] },
+  { query: 'pizza kitty party', checks: [noTag('occasions', 'kids_birthday'), noTag('occasions', 'birthday'), noTag('groups')] },
   { query: 'Butterfly birthday invitation', checks: [atLeast(5), onlyOccasion('birthday'), noOccasion('baby_shower'), allTheme('butterfly')] },
   // More cases.
   { query: 'company anniversary', checks: [atLeast(10), onlyOccasion('company_anniversary')] },
@@ -190,11 +216,11 @@ async function main() {
   occasionFamily = (id) => occasionFamilyFrom(vocab, id)
   let failed = 0
   for (const c of CASES) {
-    const r = await searchTemplates({ query: c.query })
+    const r = await searchTemplates({ query: c.query, filters: c.filters })
     const results = c.checks.map((check) => ({ check, ok: check.pass(r) }))
     const ok = results.every((x) => x.ok)
     if (!ok) failed++
-    console.log(`${ok ? 'PASS' : 'FAIL'}  ${c.query}  (${r.total} results)`)
+    console.log(`${ok ? 'PASS' : 'FAIL'}  ${c.query}${c.filters ? ` ${JSON.stringify(c.filters)}` : ''}  (${r.total} results)`)
     for (const x of results) if (!x.ok) console.log(`      ✗ ${x.check.label}`)
   }
   console.log(`\n${CASES.length - failed}/${CASES.length} passed`)

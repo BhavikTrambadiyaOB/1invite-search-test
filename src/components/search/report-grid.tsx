@@ -51,7 +51,7 @@ export function ReportGrid({ snapshot }: { snapshot: ReportSnapshot | null }) {
   const [orientation, setOrientation] = useState<OrientationFilter>('all')
   const [photo, setPhoto] = useState<PhotoFilter>('all')
 
-  const results = snapshot?.results ?? []
+  const results = useMemo(() => snapshot?.results ?? [], [snapshot])
   const hasPrice = results.some((item) => typeof item.isFree === 'boolean')
   const hasOrientation = results.some((item) => typeof item.isPortrait === 'boolean')
   const hasPhoto = results.some((item) => typeof item.hasPhoto === 'boolean')

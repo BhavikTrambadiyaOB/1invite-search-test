@@ -1,348 +1,463 @@
 /**
- * Captures live and current search results and suggested tags for /search/report.
+ * Imports test-case sheets as report versions, and captures live and current search results for
+ * /search/report. Every capture names a version and a phase, and runs a small batch (19 by default)
+ * so the live server is never hit with a whole sheet at once.
  *
  * Usage:
- *   npm run search:report:snapshot -- "5th Wedding Anniversary" "Dinner Invitation"
- *   npm run search:report:snapshot -- --file queries.txt
- *   npm run search:report:snapshot -- --csv "1invites_user_search - Occasion_Wise.csv"
- *   npm run search:report:snapshot -- --from-import --limit 1
- *   npm run search:report:snapshot -- --phase=2 --limit=10
- *   npm run search:report:snapshot -- --refresh
+ *   npm run search:report:snapshot -- --versions
+ *   npm run search:report:snapshot -- --csv "new sheet.csv" --version=2
+ *   npm run search:report:snapshot -- --version=2 --phase=1
+ *   npm run search:report:snapshot -- --version=2 --phase=1 --limit=10
+ *   npm run search:report:snapshot -- --version=2 --phase=1 "query one" "query two"
+ *   npm run search:report:snapshot -- --version=2 --phase=1 --file queries.txt
+ *   npm run search:report:snapshot -- --version=2 --phase=1 --retry-live
  *
- * `--csv` imports the occasion-wise export into search_report_import. It does not run the queries.
- * `--from-import` captures pending imported queries; `--limit N` caps the batch.
- * `--phase N` captures all imported and stored queries not yet captured in that phase.
- * Phase runs resume between batches; each run captures at most three queries concurrently.
+ * `--csv` imports a sheet into a version (created on first import) and does not run anything. Test-case
+ * sheets in any column layout are read: a "Search Query" column plus "Case Type" or "Search Category";
+ * "What It Tests", "Expected Result" and any other named columns are kept. The occasion-wise export is
+ * also read. Each sheet row is one test case; rows that are the same search are captured once.
+ * `--version V --phase P` captures the version's searches not yet captured in that phase, at most
+ * `--limit` (default 19) per run, three at a time. Run it again to continue. Runs larger than 50 pause for
+ * 5 minutes after every 50 searches, so the live server never gets a long burst.
+ * `--retry-live` re-runs only the live search for reports in that version and phase whose live capture
+ * failed, with the same limit and pauses. The current side and any feedback are kept.
  * `--file` accepts a JSON array of query strings, {"queries": [...]} or one query per line.
- * `--refresh` reruns every query already stored in the report.
  */
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-import { db } from '@/lib/db'
-import { flushTracesAndClose } from './lib/close'
-import { parseOccasionCsv } from '@/lib/search/report-csv'
-import { normalizeQuery } from '@/lib/search/parse-query'
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { flushTracesAndClose } from "./lib/close";
+import {
+  csvHeader,
+  isTestCaseCsv,
+  parseOccasionCsv,
+  parseTestCaseCsv,
+  testCaseQuery,
+} from "@/lib/search/report-csv";
+import { normalizeQuery } from "@/lib/search/parse-query";
 import {
   importSearchReportQueries,
-  listPendingImportedQueries,
+  listReportVersions,
   markImportedQueryRun,
-} from '@/lib/search/report-import'
+  pendingQueriesForPhase,
+} from "@/lib/search/report-import";
 import {
   captureCurrentReport,
   captureLiveReport,
+  listLiveErrorReports,
+  saveLiveCapture,
   saveSearchReport,
-} from '@/lib/search/report'
+} from "@/lib/search/report";
+
+/** Searches per run unless --limit says otherwise: small batches keep load on the live server low. */
+const DEFAULT_LIMIT = 19;
+/** Big runs go in chunks of this many searches, with a pause between chunks to rest the live server. */
+const CHUNK_SIZE = 50;
+const CHUNK_PAUSE_MS = 5 * 60 * 1000;
 
 type Options = {
-  queries: string[]
-  file?: string
-  csv?: string
-  refresh: boolean
-  fromImport: boolean
-  limit?: number
-  phase?: number
-  help: boolean
-}
+  queries: string[];
+  file?: string;
+  csv?: string;
+  limit: number;
+  phase?: number;
+  version?: number;
+  versions: boolean;
+  retryLive: boolean;
+  help: boolean;
+};
 
 function usage() {
   console.log(`Usage:
-  npm run search:report:snapshot -- "query one" "query two"
-  npm run search:report:snapshot -- --file path/to/queries.txt
-  npm run search:report:snapshot -- --csv "1invites_user_search - Occasion_Wise.csv"
-  npm run search:report:snapshot -- --from-import --limit 1
-  npm run search:report:snapshot -- --phase=2 --limit=10
-  npm run search:report:snapshot -- --refresh
+  npm run search:report:snapshot -- --versions
+  npm run search:report:snapshot -- --csv "new sheet.csv" --version=2
+  npm run search:report:snapshot -- --version=2 --phase=1 [--limit=${DEFAULT_LIMIT}]
+  npm run search:report:snapshot -- --version=2 --phase=1 "query one" "query two"
+  npm run search:report:snapshot -- --version=2 --phase=1 --file path/to/queries.txt
+  npm run search:report:snapshot -- --version=2 --phase=1 --retry-live [--limit=${DEFAULT_LIMIT}]
 
-Phase runs resume automatically. Omit --limit to capture every remaining query in that phase.
-At most 3 queries run concurrently. Requesting a phase beyond the next phase starts the next phase.
-File formats: JSON array of strings, {"queries": ["..."]}, or one query per line.`)
+--csv imports a sheet into a version and runs nothing.
+--retry-live re-runs only the live side of reports whose live capture failed.
+Capturing always needs --version and --phase, and runs at most --limit searches (default ${DEFAULT_LIMIT}).
+Run the same command again to continue the phase.`);
 }
 
 function parseArgs(args: string[]): Options {
-  const options: Options = { queries: [], refresh: false, fromImport: false, help: false }
+  const options: Options = {
+    queries: [],
+    limit: DEFAULT_LIMIT,
+    versions: false,
+    retryLive: false,
+    help: false,
+  };
+  const positive = (name: string, raw: string) => {
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value <= 0)
+      throw new Error(`${name} must be a positive number`);
+    return value;
+  };
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (!arg.startsWith('--')) {
-      options.queries.push(arg)
-      continue
+    const arg = args[i];
+    if (!arg.startsWith("--")) {
+      options.queries.push(arg);
+      continue;
     }
-
-    const equals = arg.indexOf('=')
-    const name = equals >= 0 ? arg.slice(0, equals) : arg
-    const inline = equals >= 0 ? arg.slice(equals + 1) : undefined
+    const equals = arg.indexOf("=");
+    const name = equals >= 0 ? arg.slice(0, equals) : arg;
+    const inline = equals >= 0 ? arg.slice(equals + 1) : undefined;
     const value = () => {
-      const next = inline ?? args[++i]
-      if (next === undefined) throw new Error(`${name} needs a value`)
-      return next
-    }
+      const next = inline ?? args[++i];
+      if (next === undefined) throw new Error(`${name} needs a value`);
+      return next;
+    };
 
     switch (name) {
-      case '--help':
-      case '-h':
-        options.help = true
-        break
-      case '--file':
-        options.file = value()
-        break
-      case '--csv':
-        options.csv = value()
-        break
-      case '--refresh':
-        options.refresh = true
-        break
-      case '--from-import':
-        options.fromImport = true
-        break
-      case '--limit': {
-        const limit = Number(value())
-        if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error('--limit must be a positive number')
-        options.limit = limit
-        break
-      }
-      case '--phase': {
-        const phase = Number(value())
-        if (!Number.isSafeInteger(phase) || phase <= 0) throw new Error('--phase must be a positive number')
-        options.phase = phase
-        break
-      }
+      case "--help":
+      case "-h":
+        options.help = true;
+        break;
+      case "--retry-live":
+        options.retryLive = true;
+        break;
+      case "--versions":
+        options.versions = true;
+        break;
+      case "--file":
+        options.file = value();
+        break;
+      case "--csv":
+        options.csv = value();
+        break;
+      case "--limit":
+        options.limit = positive("--limit", value());
+        break;
+      case "--phase":
+        options.phase = positive("--phase", value());
+        break;
+      case "--version":
+        options.version = positive("--version", value());
+        break;
       default:
-        throw new Error(`Unknown option ${name}`)
+        throw new Error(`Unknown option ${name}`);
     }
   }
-
-  return options
+  return options;
 }
 
 async function queriesFromFile(file: string): Promise<string[]> {
-  const text = await readFile(file, 'utf8')
-  const trimmed = text.trim()
-  if (!trimmed) return []
-
-  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (Array.isArray(parsed)) return parsed.filter((q): q is string => typeof q === 'string')
-    if (typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { queries?: unknown }).queries)) {
-      return (parsed as { queries: unknown[] }).queries.filter((q): q is string => typeof q === 'string')
+  const text = await readFile(file, "utf8");
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed))
+      return parsed.filter((q): q is string => typeof q === "string");
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      Array.isArray((parsed as { queries?: unknown }).queries)
+    ) {
+      return (parsed as { queries: unknown[] }).queries.filter(
+        (q): q is string => typeof q === "string",
+      );
     }
-    throw new Error('JSON file must be an array of strings or {"queries": [...]}')
+    throw new Error(
+      'JSON file must be an array of strings or {"queries": [...]}',
+    );
   }
-
-  return trimmed.split(/\r?\n/)
+  return trimmed.split(/\r?\n/);
 }
 
-function cleanQuery(value: string) {
-  return value.replace(/\s+/g, ' ').trim()
+async function printVersions() {
+  const versions = await listReportVersions();
+  if (versions.length === 0) {
+    console.log(
+      'No versions yet. Import a sheet with --csv "file.csv" --version=1.',
+    );
+    return;
+  }
+  for (const v of versions) {
+    const phases = v.phases.length
+      ? v.phases.map((p) => `Phase ${p.phase}: ${p.reports}`).join(", ")
+      : "nothing captured";
+    console.log(`v${v.version}  ${v.sourceFile}`);
+    console.log(
+      `     ${v.testCases} test cases, ${v.queries} searches · ${phases}`,
+    );
+    console.log(`     columns: ${v.columns.join(", ") || "—"}`);
+  }
 }
 
-async function storedQueries() {
-  const { rows } = await db.query<{ query: string }>('select query from search_report order by id')
-  return rows.map((row) => row.query)
+async function importCsv(file: string, version: number) {
+  const text = await readFile(file, "utf8");
+  const testCases = isTestCaseCsv(text);
+  const header = csvHeader(text);
+  if (!testCases && header.some((name) => /query/i.test(name))) {
+    throw new Error(
+      `Could not find a case type column in ${path.basename(file)}. Columns: ${header.join(", ")}. ` +
+        'Expected "Case Type" or "Search Category" next to "Search Query".',
+    );
+  }
+  const parsed = testCases ? parseTestCaseCsv(text) : parseOccasionCsv(text);
+  const existing = (await listReportVersions()).find(
+    (v) => v.version === version,
+  );
+  if (existing && existing.sourceFile !== path.basename(file)) {
+    console.log(
+      `Note: v${version} was imported from "${existing.sourceFile}". Adding these rows to it.`,
+    );
+  }
+  const result = await importSearchReportQueries(parsed, {
+    sourceFile: path.basename(file),
+    version,
+    columns: header.filter(Boolean),
+  });
+  console.log(
+    `${result.created ? "Created" : "Updated"} v${version}: ${result.rows.toLocaleString()} ${testCases ? "test cases" : "occasion queries"} from ${path.basename(file)} (${result.saved.toLocaleString()} saved).`,
+  );
+  console.log(
+    `Capture with: npm run search:report:snapshot -- --version=${version} --phase=1`,
+  );
 }
 
-async function storedQueriesForPhase(phase: number) {
-  const { rows } = await db.query<{ query: string }>(
-    `select distinct source.query
-       from search_report source
-      where not exists (
-        select 1
-          from search_report captured
-         where captured.phase = $1
-           and (
-             captured.normalized_query = source.normalized_query or
-             lower(regexp_replace(trim(captured.query), '[[:space:]]+', ' ', 'g')) =
-               lower(regexp_replace(trim(source.query), '[[:space:]]+', ' ', 'g'))
-           )
-           and captured.live_snapshot is not null
-           and captured.current_snapshot is not null
-           and captured.live_error is null
-           and captured.current_error is null
-      )
-      order by source.query`,
-    [phase],
-  )
-  return rows.map((row) => row.query)
-}
-
-async function importedQueriesForPhase(phase: number) {
-  const { rows } = await db.query(
-    `select i.id, i.query, i.occasion, i.last_run_at
-       from search_report_import i
-      where not exists (
-        select 1
-          from search_report captured
-         where captured.id = i.last_report_id
-           and captured.phase = $1
-           and captured.live_snapshot is not null
-           and captured.current_snapshot is not null
-           and captured.live_error is null
-           and captured.current_error is null
-      )
-      order by i.id`,
-    [phase],
-  )
-  return rows.map((row) => ({
-    id: String(row.id),
-    query: row.query,
-    occasion: row.occasion,
-    lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : null,
-  }))
-}
-
-async function latestReportPhase() {
-  const { rows } = await db.query<{ phase: number | null }>(
-    'select max(phase)::int as phase from search_report',
-  )
-  return rows[0]?.phase ?? 0
-}
-
-type Target = { query: string; importIds: string[] }
+type Target = { query: string; importIds: string[] };
 
 function addTarget(map: Map<string, Target>, query: string, importId?: string) {
-  const cleaned = cleanQuery(query)
-  if (!cleaned) return
-  const key = normalizeQuery(cleaned) || cleaned.toLowerCase()
-  const existing = map.get(key)
+  const text = testCaseQuery(query);
+  if (!text.trim()) return;
+  const key = normalizeQuery(text) || text.trim().toLowerCase();
+  const existing = map.get(key);
   if (existing) {
-    if (importId && !existing.importIds.includes(importId)) existing.importIds.push(importId)
-    return
+    if (importId && !existing.importIds.includes(importId))
+      existing.importIds.push(importId);
+    return;
   }
-  map.set(key, { query: cleaned, importIds: importId ? [importId] : [] })
+  map.set(key, { query: text, importIds: importId ? [importId] : [] });
+}
+
+/** Runs `work` for each item, three at a time, pausing 5 minutes after every CHUNK_SIZE items. */
+async function runInChunks<T>(
+  items: T[],
+  work: (item: T, index: number) => Promise<void>,
+) {
+  let next = 0;
+  let chunkEnd = 0;
+  async function worker() {
+    while (next < chunkEnd) {
+      const index = next++;
+      await work(items[index], index);
+    }
+  }
+  for (let start = 0; start < items.length; start += CHUNK_SIZE) {
+    if (start > 0) {
+      const resume = new Date(Date.now() + CHUNK_PAUSE_MS).toLocaleTimeString();
+      console.log(
+        `\nPausing 5 minutes after ${start} searches to rest the live server (resumes at ${resume}; ${items.length - start} to go).\n`,
+      );
+      await sleep(CHUNK_PAUSE_MS);
+    }
+    chunkEnd = Math.min(start + CHUNK_SIZE, items.length);
+    await Promise.all(
+      Array.from({ length: Math.min(3, chunkEnd - start) }, () => worker()),
+    );
+  }
+}
+
+async function retryLive(version: number, phase: number, limit: number) {
+  const all = await listLiveErrorReports(version, phase);
+  const targets = all.slice(0, limit);
+  if (targets.length === 0) {
+    console.log(`v${version} Phase ${phase} has no live errors.`);
+    return;
+  }
+  console.log(
+    `Retrying live for ${targets.length} of ${all.length} ${all.length === 1 ? "report" : "reports"} with a live error in v${version} Phase ${phase} (current side kept; up to 3 at a time${targets.length > CHUNK_SIZE ? `; 5-minute pause after every ${CHUNK_SIZE}` : ""})\n`,
+  );
+  let failed = 0;
+  await runInChunks(targets, async (target, index) => {
+    const prefix = `[${index + 1}/${targets.length}]`;
+    try {
+      const live = await captureLiveReport(target.query);
+      await saveLiveCapture(target.id, live);
+      if (live.error || !live.snapshot) failed++;
+      console.log(
+        `${prefix} #${target.id} "${target.query}" live: ${live.error ?? `${live.snapshot?.results.length ?? 0} shown${live.snapshot?.total != null ? ` of ${live.snapshot.total}` : ""}`}`,
+      );
+    } catch (error) {
+      failed++;
+      console.error(
+        `${prefix} Failed #${target.id} "${target.query}": ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  });
+  const left = all.length - targets.length + failed;
+  console.log(
+    `\nRetried ${targets.length}; ${targets.length - failed} fixed${failed ? `, ${failed} still failing` : ""}. ${left} live ${left === 1 ? "error" : "errors"} left in v${version} Phase ${phase}.`,
+  );
+  if (left > 0)
+    console.log("Run the same command again to retry the next batch.");
+  console.log(
+    `Review at /search/report?v=${version}&phase=${phase}&error=live`,
+  );
+  if (failed) process.exitCode = 1;
 }
 
 async function main() {
-  let options: Options
+  let options: Options;
   try {
-    options = parseArgs(process.argv.slice(2))
+    options = parseArgs(process.argv.slice(2));
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
-    usage()
-    process.exitCode = 1
-    return
+    console.error(error instanceof Error ? error.message : error);
+    usage();
+    process.exitCode = 1;
+    return;
   }
-
-  if (options.help) {
-    usage()
-    return
-  }
-
-  if (options.phase !== undefined && (options.fromImport || options.refresh || options.file || options.csv || options.queries.length)) {
-    console.error('--phase cannot be combined with --from-import, --refresh, --file, --csv, or positional queries')
-    usage()
-    process.exitCode = 1
-    return
-  }
-  if (options.limit !== undefined && !options.fromImport && options.phase === undefined) {
-    console.error('--limit requires --from-import or --phase')
-    usage()
-    process.exitCode = 1
-    return
-  }
+  if (options.help) return usage();
+  if (options.versions) return printVersions();
 
   if (options.csv) {
-    const text = await readFile(options.csv, 'utf8')
-    const parsed = parseOccasionCsv(text)
-    const result = await importSearchReportQueries(parsed, path.basename(options.csv))
-    console.log(
-      `Imported ${result.rows.toLocaleString()} queries from ${path.basename(options.csv)} (${result.saved.toLocaleString()} saved).`,
-    )
+    if (options.version === undefined) {
+      console.error(
+        "--csv needs --version: the version these test cases belong to (a new number for a new sheet).",
+      );
+      await printVersions();
+      process.exitCode = 1;
+      return;
+    }
+    if (options.phase !== undefined || options.queries.length || options.file) {
+      console.error(
+        "--csv only imports. Capture afterwards with --version and --phase.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    await importCsv(options.csv, options.version);
+    return;
   }
 
-  const byQuery = new Map<string, Target>()
-  let phase = options.phase
-  if (phase !== undefined) {
-    const maxPhase = await latestReportPhase()
-    const nextPhase = maxPhase + 1
-    if (phase > nextPhase) {
-      console.log(`Phase ${phase} is ahead of the next phase. Starting Phase ${nextPhase} (latest saved phase: ${maxPhase}).`)
-      phase = nextPhase
+  if (options.version === undefined || options.phase === undefined) {
+    console.error("Capturing needs both --version and --phase.");
+    usage();
+    await printVersions();
+    process.exitCode = 1;
+    return;
+  }
+  const { version, phase } = options;
+  const info = (await listReportVersions()).find((v) => v.version === version);
+  if (!info) {
+    console.error(
+      `v${version} does not exist. Import its sheet first with --csv "file.csv" --version=${version}.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (options.retryLive) {
+    if (options.queries.length || options.file) {
+      console.error(
+        "--retry-live picks the failed reports itself; leave out queries and --file.",
+      );
+      process.exitCode = 1;
+      return;
     }
-    for (const row of await importedQueriesForPhase(phase)) addTarget(byQuery, row.query, row.id)
-    for (const query of await storedQueriesForPhase(phase)) addTarget(byQuery, query)
+    await retryLive(version, phase, options.limit);
+    return;
+  }
+  const lastPhase = Math.max(0, ...info.phases.map((p) => p.phase));
+  if (phase > lastPhase + 1) {
+    console.error(
+      `v${version} has phases up to ${lastPhase}. The next phase is ${lastPhase + 1}.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const byQuery = new Map<string, Target>();
+  if (options.queries.length || options.file) {
+    for (const query of options.queries) addTarget(byQuery, query);
+    if (options.file)
+      for (const query of await queriesFromFile(options.file))
+        addTarget(byQuery, query);
   } else {
-    for (const query of options.queries) addTarget(byQuery, query)
-    if (options.file) {
-      for (const query of await queriesFromFile(options.file)) addTarget(byQuery, query)
-    }
-    if (options.refresh) {
-      for (const query of await storedQueries()) addTarget(byQuery, query)
-    }
-  }
-  if (options.fromImport) {
-    for (const row of await listPendingImportedQueries(options.limit)) addTarget(byQuery, row.query, row.id)
+    for (const row of await pendingQueriesForPhase(version, phase))
+      addTarget(byQuery, row.query, row.id);
   }
 
-  const allTargets = [...byQuery.values()]
-  const targets = options.limit === undefined ? allTargets : allTargets.slice(0, options.limit)
+  const allTargets = [...byQuery.values()];
+  const targets = allTargets.slice(0, options.limit);
   if (targets.length === 0) {
-    if (phase !== undefined) {
-      console.log(`Phase ${phase} is already complete. Visit /search/report?phase=${phase} to review the results.`)
-      return
-    }
-    if (options.csv) {
-      console.log('CSV imported. Run `npm run search:report:snapshot -- --from-import --limit 1` to capture a query.')
-      return
-    }
-    usage()
-    process.exitCode = 1
-    return
+    console.log(
+      `v${version} Phase ${phase} is complete. Review it at /search/report?v=${version}&phase=${phase}.`,
+    );
+    return;
   }
 
   console.log(
-    `Capturing ${targets.length} ${targets.length === 1 ? 'query' : 'queries'}${phase !== undefined ? ` for Phase ${phase}` : ''} (first 40 results each; up to 3 at a time)\n`,
-  )
+    `Capturing ${targets.length} of ${allTargets.length} remaining ${allTargets.length === 1 ? "search" : "searches"} for v${version} Phase ${phase} (first 40 results each; up to 3 at a time${targets.length > CHUNK_SIZE ? `; 5-minute pause after every ${CHUNK_SIZE}` : ""})\n`,
+  );
 
-  let failed = 0
-  let nextTarget = 0
-  async function captureWorker() {
-    while (nextTarget < targets.length) {
-      const index = nextTarget++
-      const target = targets[index]
-      const prefix = `[${index + 1}/${targets.length}]`
-      console.log(`${prefix} Starting${phase !== undefined ? ` Phase ${phase}:` : ''} ${target.query}`)
-      try {
-        const [live, current] = await Promise.all([
-          captureLiveReport(target.query),
-          captureCurrentReport(target.query),
-        ])
-        const hasError = !!(live.error || current.error || !live.snapshot || !current.snapshot)
-        const id = await saveSearchReport(target.query, live, current, phase)
-        for (const importId of target.importIds) await markImportedQueryRun(importId, id)
+  let failed = 0;
+  await runInChunks(targets, async (target, index) => {
+    const prefix = `[${index + 1}/${targets.length}]`;
+    console.log(
+      `${prefix} Starting v${version} Phase ${phase}: ${target.query}`,
+    );
+    try {
+      const [live, current] = await Promise.all([
+        captureLiveReport(target.query),
+        captureCurrentReport(target.query),
+      ]);
+      const hasError = !!(
+        live.error ||
+        current.error ||
+        !live.snapshot ||
+        !current.snapshot
+      );
+      const id = await saveSearchReport(target.query, live, current, {
+        phase,
+        version,
+      });
+      for (const importId of target.importIds)
+        await markImportedQueryRun(importId, id);
 
-        console.log(`${prefix} Saved report #${id} for "${target.query}"`)
-        console.log(
-          `${prefix} live: ${live.error ?? `${live.snapshot?.results.length ?? 0} shown${live.snapshot?.total != null ? ` of ${live.snapshot.total}` : ''}`}`,
-        )
-        console.log(
-          `${prefix} live tags: ${live.snapshot?.suggestionsError ?? (live.snapshot ? `${live.snapshot.suggestedTags?.length ?? 0} tags` : 'not captured')}`,
-        )
-        console.log(
-          `${prefix} current: ${current.error ?? `${current.snapshot?.results.length ?? 0} shown${current.snapshot?.total != null ? ` of ${current.snapshot.total}` : ''}`}`,
-        )
-        console.log(
-          `${prefix} current tags: ${current.snapshot ? `${current.snapshot.suggestedTags?.length ?? 0} tags` : 'not captured'}`,
-        )
-        if (hasError) failed++
-      } catch (error) {
-        failed++
-        console.error(`${prefix} Failed "${target.query}": ${error instanceof Error ? error.message : error}`)
-      }
+      console.log(`${prefix} Saved report #${id} for "${target.query}"`);
+      console.log(
+        `${prefix} live: ${live.error ?? `${live.snapshot?.results.length ?? 0} shown${live.snapshot?.total != null ? ` of ${live.snapshot.total}` : ""}`}`,
+      );
+      console.log(
+        `${prefix} live tags: ${live.snapshot?.suggestionsError ?? (live.snapshot ? `${live.snapshot.suggestedTags?.length ?? 0} tags` : "not captured")}`,
+      );
+      console.log(
+        `${prefix} current: ${current.error ?? `${current.snapshot?.results.length ?? 0} shown${current.snapshot?.total != null ? ` of ${current.snapshot.total}` : ""}`}`,
+      );
+      console.log(
+        `${prefix} current tags: ${current.snapshot ? `${current.snapshot.suggestedTags?.length ?? 0} tags` : "not captured"}`,
+      );
+      if (hasError) failed++;
+    } catch (error) {
+      failed++;
+      console.error(
+        `${prefix} Failed "${target.query}": ${error instanceof Error ? error.message : error}`,
+      );
     }
-  }
+  });
 
-  await Promise.all(Array.from({ length: Math.min(3, targets.length) }, () => captureWorker()))
-
-  const saved = targets.length - failed
+  const left = allTargets.length - targets.length;
   console.log(
-    `Finished ${targets.length} ${targets.length === 1 ? 'query' : 'queries'}${phase !== undefined ? ` for Phase ${phase}` : ''}; ${saved} without errors${failed ? `, ${failed} failed or need retrying` : ''}.`,
-  )
-  console.log(`Open /search/report${phase !== undefined ? `?phase=${phase}` : ''} to review them.`)
-  if (failed) process.exitCode = 1
+    `Finished ${targets.length} for v${version} Phase ${phase}; ${targets.length - failed} without errors${failed ? `, ${failed} failed or need retrying` : ""}.`,
+  );
+  console.log(
+    left > 0
+      ? `${left} searches left. Run the same command again to capture the next ${Math.min(left, options.limit)}.`
+      : `v${version} Phase ${phase} is complete.`,
+  );
+  console.log(`Review at /search/report?v=${version}&phase=${phase}`);
+  if (failed) process.exitCode = 1;
 }
 
 main()
   .catch((error) => {
-    console.error(error)
-    process.exitCode = 1
+    console.error(error);
+    process.exitCode = 1;
   })
-  .finally(() => flushTracesAndClose())
+  .finally(() => flushTracesAndClose());

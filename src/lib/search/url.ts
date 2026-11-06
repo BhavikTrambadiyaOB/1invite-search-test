@@ -18,7 +18,7 @@ const list = (v: string | string[] | undefined) =>
     .map((x) => x.trim())
     .filter(Boolean)
 
-/** Reads the search page URL: /search?q=dinner&occasion=birthday&themes=floral&mood=fun&lang=spanish&photo=with&age=30&page=2 */
+/** Reads the search page URL: /search?q=dinner&group=parties&occasion=birthday&themes=floral&mood=fun&lang=spanish&photo=with&age=30&page=2 */
 export function parseSearchParams(params: RawParams): SearchState {
   const price = first(params.price)
   const orientation = first(params.orientation)
@@ -29,6 +29,7 @@ export function parseSearchParams(params: RawParams): SearchState {
     debug: first(params.debug) === '1',
     ignore: list(params.ignore).slice(0, 20),
     filters: {
+      groups: list(params.group),
       occasions: list(params.occasion),
       themes: list(params.themes),
       styles: list(params.styles),
@@ -60,6 +61,7 @@ export function searchHref(state: SearchState, changes: Partial<SearchState> & {
 
   const sp = new URLSearchParams()
   if (query) sp.set('q', query)
+  if (filters.groups?.length) sp.set('group', filters.groups.join(','))
   if (filters.occasions?.length) sp.set('occasion', filters.occasions.join(','))
   if (filters.themes?.length) sp.set('themes', filters.themes.join(','))
   if (filters.styles?.length) sp.set('styles', filters.styles.join(','))
@@ -90,6 +92,7 @@ export function toggle(values: string[] | undefined, value: string) {
 
 export function activeFilterCount(filters: SearchFilters) {
   return (
+    (filters.groups?.length ?? 0) +
     (filters.occasions?.length ?? 0) +
     (filters.themes?.length ?? 0) +
     (filters.styles?.length ?? 0) +
@@ -108,6 +111,7 @@ export function activeFilterCount(filters: SearchFilters) {
 
 /** Filter values that clear every filter group. */
 export const NO_FILTERS: SearchFilters = {
+  groups: [],
   occasions: [],
   themes: [],
   styles: [],
@@ -130,6 +134,9 @@ export const NO_FILTERS: SearchFilters = {
 export function tagHref(state: SearchState, group: ActiveTag['group'], value: string, on: boolean) {
   const f = state.filters
   switch (group) {
+    // A group ("Parties") is the step before an occasion: one at a time, like occasions.
+    case 'groups':
+      return searchHref(state, { filters: { groups: on ? [value] : toggle(f.groups, value) } })
     case 'occasions':
       return searchHref(state, { filters: { occasions: on ? [value] : toggle(f.occasions, value) } })
     case 'milestones': {

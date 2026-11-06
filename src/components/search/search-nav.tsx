@@ -9,13 +9,23 @@ type NavItem = {
 
 const ITEMS: NavItem[] = [
   { href: '/search', label: 'Search' },
+  { href: '/templates', label: 'Template library' },
   { href: '/search/report', label: 'Search report', phase: '1' },
   { href: '/search/insights', label: 'Failed queries', phase: '2' },
+  { href: '/search/how-it-works', label: 'How it works' },
 ]
 
+const HREF_BY_ACTIVE = {
+  search: '/search',
+  report: '/search/report',
+  failed: '/search/insights',
+  templates: '/templates',
+  how: '/search/how-it-works',
+} as const
+
 /** Search, report and failed-query tabs. The report is phase 1 so it is checked before tuning search. */
-export function SearchNav({ active }: { active: 'search' | 'report' | 'failed' }) {
-  const activeHref = active === 'search' ? '/search' : active === 'report' ? '/search/report' : '/search/insights'
+export function SearchNav({ active }: { active: keyof typeof HREF_BY_ACTIVE }) {
+  const activeHref = HREF_BY_ACTIVE[active]
 
   return (
     <nav

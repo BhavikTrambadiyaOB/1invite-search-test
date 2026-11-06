@@ -1,4 +1,5 @@
 import { db } from '../db'
+import { catalogExclusion } from './catalog-exclusion'
 import { RANKING } from './ranking'
 import { isAiEnabled } from './ai-config'
 import { hasEmbeddingColumn, queryEmbedding } from './embeddings'
@@ -13,29 +14,23 @@ import {
   LANGUAGE_BY_ID,
   MOOD_BY_ID,
   OCCASION_BY_ID,
+  OCCASION_GROUP_BY_ID,
   CARD_MEANS_GREETING_GROUPS,
+  RESERVED_OCCASION_WORDS,
+  occasionGroupId,
   type OccasionDef,
   type SimpleDef,
 } from './taxonomy'
 import { keywordConcepts } from './keyword-concepts'
 import { suggestTags } from './suggest-tags'
-import { normalizeText, ordinal, queryText } from './text'
+import { compilePhrases, findMatches, normalizeText, ordinal, queryText } from './text'
 import type { ActiveTag, FacetValue, QuickTag, SuggestedTag, SearchFilters, SearchIntent, SearchResponse, SearchResultItem } from './types'
 
 const FILTER_GROUPS = [
-  'occasion', 'milestone', 'themes', 'assets', 'styles', 'moods', 'colors', 'docType', 'gender', 'language', 'photo', 'price', 'orientation',
+  'occasionGroup', 'occasion', 'milestone', 'themes', 'assets', 'styles', 'moods', 'colors', 'docType', 'gender', 'language', 'photo', 'price', 'orientation',
 ] as const
 type FilterGroup = (typeof FILTER_GROUPS)[number]
 
-const EXCLUDED_CATALOG_IDS = [1058, 1079, 1081, 1082, 1083, 1084, 1088, 2186] as const
-
-function catalogExclusion(templateAlias: string) {
-  return `not exists (
-    select 1 from images i
-     where i.id = ${templateAlias}.template_id
-       and i.catalog_id = any(array[${EXCLUDED_CATALOG_IDS.join(', ')}]::int[])
-  )`
-}
 
 /** Collects SQL parameters and returns their $n placeholders. */
 class Params {
@@ -98,11 +93,22 @@ function withoutIgnored(intent: SearchIntent, ignore: string[]): SearchIntent {
   }
 }
 
+/**
+ * Chip label of an occasion group. A group named like one of its occasions reads "Wedding Events", so tapping
+ * it and then seeing the "Wedding" occasion chip does not look like the same tag twice.
+ */
+function groupLabel(vocab: Awaited<ReturnType<typeof getVocabulary>>, id: string): string {
+  const group = OCCASION_GROUP_BY_ID.get(id) ?? id
+  const sameName = vocab.terms.some((t) => t.kind === 'occasion' && t.label.toLowerCase() === group.toLowerCase())
+  return sameName ? `${group} Events` : group
+}
+
 /** The applied filters as labelled chips (Birthday, 30th, Dinosaurs, With photo…). */
 function activeTags(filters: SearchFilters, vocab: Awaited<ReturnType<typeof getVocabulary>>): ActiveTag[] {
   const of = (group: ActiveTag['group'], values: string[] | undefined, toLabel: (v: string) => string) =>
     (values ?? []).map((value) => ({ group, value, label: toLabel(value) }))
   return [
+    ...of('groups', filters.groups, (v) => groupLabel(vocab, v)),
     ...of('occasions', filters.occasions, (v) => labelFor(vocab, 'occasion', v)),
     ...of('milestones', filters.milestones?.map(String), (v) => ordinal(Number(v))),
     ...of('genders', filters.genders, (v) => GENDER_BY_ID.get(v)?.label ?? v),
@@ -185,6 +191,20 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     : undefined
   const strictOccasion =
     occDef && !occDef.generic && intent.occasionConfidence >= RANKING.strictOccasionConfidence ? occDef : undefined
+  // The user typed this event's name ("kitty party"), not just a broad word ("party") the reading guessed from.
+  // Tags then stay inside the event instead of offering the other events the page was filled with.
+  const namedEvent =
+    !!occDef && !occDef.abstract &&
+    findMatches(
+      compilePhrases(
+        [...occDef.phrases, ...phrasesFor(vocab, 'occasion', occDef.id), occDef.label].filter((x) => !RESERVED_OCCASION_WORDS.has(normalizeText(x))),
+      ),
+      normalizeText(query),
+    ).length > 0
+  // Every occasion with its group ("kitty_party" → "parties"), for the group filter and group chips.
+  const groupedOccasions = vocab.terms.filter((t) => t.kind === 'occasion' && t.occasionGroup)
+  const groupIdOf = (t: (typeof groupedOccasions)[number]) => occasionGroupId(t.occasionGroup ?? '')
+  const chosenGroups = (filters.groups ?? []).filter((g) => OCCASION_GROUP_BY_ID.has(g))
   // A template matches its own occasion and the extra occasions it also fits (a 4th birthday card fits Kids Birthday).
   const inOccasions = (ids: string) => `(occasion = any(${ids}::text[]) or extra_occasions && ${ids}::text[])`
   // The occasion above the asked one is a fallback ("Anniversary" cards for "5th Wedding Anniversary"),
@@ -241,12 +261,15 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   }
 
   const themeOrAsset: string[] = []
+  const assetChecks: string[] = []
   for (const theme of intent.themes) {
     themeOrAsset.push(`(themes @> array[${p.add(theme)}]::text[] or search_vector @@ ${tsAny(p, phrasesFor(vocab, 'theme', theme))})`)
   }
   // A specific object ("basketball", "sushi"): in the design or named in the template.
   for (const asset of intent.assets) {
-    themeOrAsset.push(`(assets @> array[${p.add(asset)}]::text[] or search_vector @@ ${tsAny(p, phrasesFor(vocab, 'asset', asset))})`)
+    const condition = `(assets @> array[${p.add(asset)}]::text[] or search_vector @@ ${tsAny(p, phrasesFor(vocab, 'asset', asset))})`
+    themeOrAsset.push(condition)
+    assetChecks.push(condition)
   }
   for (const condition of themeOrAsset) detail(condition)
   if (weakOccasion) where.push(`(${themeOrAsset.join(' or ')})`)
@@ -314,7 +337,9 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // Each group becomes a yes/no column. Results need every group; a group's own counts
   // ignore that group, so its other options stay visible. Values within a group are OR-ed.
   const selectedOccasions = (filters.occasions ?? []).flatMap((o) => occasionFamily(o))
+  const groupOccasions = groupedOccasions.filter((t) => chosenGroups.includes(groupIdOf(t))).map((t) => t.id)
   const filterFlags: Record<FilterGroup, string> = {
+    occasionGroup: groupOccasions.length ? `coalesce(${inOccasions(p.add(groupOccasions))}, false)` : 'true',
     occasion: selectedOccasions.length ? `coalesce(${inOccasions(p.add(selectedOccasions))}, false)` : 'true',
     themes: filters.themes?.length ? `themes && ${p.add(filters.themes)}::text[]` : 'true',
     styles: filters.styles?.length ? `styles && ${p.add(filters.styles)}::text[]` : 'true',
@@ -384,7 +409,7 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // cards, then other wedding anniversary cards, then general anniversary cards (5th ones first).
   // Within a tier, the score (meaning, freshness, quality…) decides.
   // 1. how close the occasion is (asked one, then its parent), 2. how many asked details the card has
-  // (5th, dinosaur, pink, "halloween" in "halloween wedding"), 3. for an asked age: no age printed beats another age.
+  // (5th, dinosaur, pink, "halloween" in "halloween wedding"), 3. for an asked age: exact, nearby, no age, then distant.
   const tier = occDef && !weakOccasion
     ? `(case when ${inOccasions(p.add(occasionFamily(occDef.id)))} then 2
              when ${ancestors.length ? `occasion = any(${p.add(ancestors)}::text[])` : 'false'} then 1 else 0 end)`
@@ -396,13 +421,18 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     requestedChecks.push(condition)
   }
   const detailHits = detailChecks.length ? detailChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ') : '0'
+  const assetHits = assetChecks.length ? assetChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ') : '0'
   const requestedHits = requestedChecks.length
     ? requestedChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ')
     : '0'
   const sameOccasion = occDef ? `coalesce(${inOccasions(p.add(occasionFamily(occDef.id)))}, false)` : 'false'
   const directOccasionCheck = occDef ? 'same_occasion' : 'true'
+  // Asked age first, then other printed ages closest to it (55th before 20th for "50th"), then cards with no age.
   const milestoneState = intent.milestone
-    ? `(case when milestone = ${p.add(intent.milestone)} then 2 when milestone is null then 1 else 0 end)`
+    ? `(case when milestone = ${p.add(intent.milestone)} then 2 when milestone is not null then 1 else 0 end)`
+    : '0'
+  const milestoneDistance = intent.milestone
+    ? `(case when milestone is null then 2147483647 else abs(milestone - ${p.add(intent.milestone)}) end)`
     : '0'
 
   const freshness = `exp(-ln(2) * extract(epoch from (now() - created_at)) / 86400 / ${RANKING.freshnessHalfLifeDays})`
@@ -429,8 +459,10 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
              gender, themes, assets, styles, colors, doc_type, format, moods, extra_occasions, languages, has_photo,
              ${relevance} as relevance, ${freshness} as freshness, quality_score as quality,
              ${milestoneBonus} + ${alsoBonus} + ${greetingBonus} as milestone_bonus, ${textRank} as text_rank, ${tier} as tier,
-             ${detailHits} as detail_hits, ${requestedHits} as requested_hits, ${sameOccasion} as same_occasion,
-             ${milestoneState} as milestone_state,
+             ${detailHits} as detail_hits,
+             (${detailHits} + (${assetHits}) * ${RANKING.assetPriorityWeight}) as priority_detail_hits,
+             ${requestedHits} as requested_hits, ${sameOccasion} as same_occasion,
+             ${milestoneState} as milestone_state, ${milestoneDistance} as milestone_distance,
              ${selectionHits} as selection_hits, ${occasionWhere ? `coalesce(${occasionWhere}, false)` : 'true'} as on_occasion,
              ${FILTER_GROUPS.map((g) => `${filterFlags[g]} as f_${g}`).join(', ')}
         from template_search t
@@ -452,12 +484,15 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     ),
     -- The best-matching results (asked occasion and every asked detail) for tag suggestions, so "dinosaur
     -- birthday" suggests within dinosaur birthdays. Too few of them (four 5th anniversaries) → the asked occasion.
-    best as (select max(tier) mt, max(detail_hits) mh from final),
-    top_rows as (select f.* from final f, best b where f.tier = b.mt and f.detail_hits = b.mh),
+    -- With an asked occasion, only its cards count: cards added to fill a thin page ("pizza kitty party" has 3
+    -- kitty party cards, filled with kids birthdays) never decide the tags.
+    base as (select * from final where ${occDef ? 'same_occasion' : 'true'}),
+    best as (select max(tier) mt, max(detail_hits) mh from base),
+    top_rows as (select f.* from base f, best b where f.tier = b.mt and f.detail_hits = b.mh),
     focus as (
       select * from top_rows where (select count(*) from top_rows) >= ${RANKING.suggestions.minResults}
       union all
-      select f.* from final f, best b where f.tier = b.mt and (select count(*) from top_rows) < ${RANKING.suggestions.minResults}
+      select f.* from base f, best b where f.tier = b.mt and (select count(*) from top_rows) < ${RANKING.suggestions.minResults}
     )
     select
       (select count(*) from final)::int as total,
@@ -465,24 +500,33 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
       (select count(*) from final where tier = ${occDef && !weakOccasion ? 2 : 0} and detail_hits = ${detailChecks.length})::int as exact_total,
       (select count(*) from final where ${directOccasionCheck} and requested_hits = ${requestedChecks.length})::int as direct_count,
       (select count(*) from final where same_occasion and ${requestedChecks.length > 0 ? 'requested_hits = 0' : 'false'})::int as occasion_only_count,
-      (select coalesce(json_agg(json_build_object('g', g, 'id', v, 'count', c)), '[]') from (
-         select 'occasion' g, o v, count(*)::int c from focus, unnest(array_remove(array[occasion] || extra_occasions, null)) o group by o
-         union all select 'themes', v, count(*)::int from focus, unnest(themes) v group by v
-         union all select 'assets', v, count(*)::int from focus, unnest(assets) v group by v
-         union all select 'styles', v, count(*)::int from focus, unnest(styles) v group by v
-         union all select 'colors', v, count(*)::int from focus, unnest(colors) v group by v
-         union all select 'moods', v, count(*)::int from focus, unnest(moods) v group by v
-         union all select 'languages', v, count(*)::int from focus, unnest(languages) v group by v
-         union all select 'gender', coalesce(gender, 'neutral'), count(*)::int from focus group by 2
-         union all select 'milestones', milestone::text, count(*)::int from focus where milestone is not null group by 2
-         union all select 'photo', 'with', count(*)::int from focus where has_photo
+      (select coalesce(json_agg(json_build_object('g', g, 'id', v, 'count', c, 'fit', fit)), '[]') from (
+         select 'occasion' g, o v, count(*)::int c, avg(relevance)::real fit
+           from focus, unnest(array_remove(array[occasion] || extra_occasions, null)) o group by o
+         union all select 'themes', v, count(*)::int, null from focus, unnest(themes) v group by v
+         union all select 'assets', v, count(*)::int, null from focus, unnest(assets) v group by v
+         union all select 'styles', v, count(*)::int, null from focus, unnest(styles) v group by v
+         union all select 'colors', v, count(*)::int, null from focus, unnest(colors) v group by v
+         union all select 'moods', v, count(*)::int, null from focus, unnest(moods) v group by v
+         union all select 'languages', v, count(*)::int, null from focus, unnest(languages) v group by v
+         union all select 'gender', coalesce(gender, 'neutral'), count(*)::int, null from focus group by 2
+         union all select 'milestones', milestone::text, count(*)::int, null from focus where milestone is not null group by 2
+         union all select 'photo', 'with', count(*)::int, null from focus where has_photo
        ) x) as focus_facets,
+      (select coalesce(json_agg(json_build_object('id', grp, 'count', c, 'fit', fit)), '[]') from (
+         select grp, count(*)::int c, avg(relevance)::real fit from (
+           select distinct f.template_id, f.relevance, m.grp
+             from final f, unnest(array_remove(array[f.occasion] || f.extra_occasions, null)) o,
+                  unnest(${p.add(groupedOccasions.map((t) => t.id))}::text[], ${p.add(groupedOccasions.map(groupIdOf))}::text[]) m(occ, grp)
+            where m.occ = o) g
+          group by grp order by c desc) x) as groups,
       (select coalesce(json_agg(r), '[]') from (
          select * from final
-          order by selection_hits desc, tier desc, detail_hits desc, milestone_state desc, banded_score desc, score desc, created_at desc, template_id
+           order by selection_hits desc, tier desc, priority_detail_hits desc, detail_hits desc,
+                    milestone_state desc, milestone_distance asc, banded_score desc, score desc, created_at desc, template_id
           limit ${pageSize} offset ${offset}) r) as results,
-      (select coalesce(json_agg(json_build_object('id', occasion, 'count', c, 'format', f)), '[]') from (
-         select o as occasion, count(*)::int c, mode() within group (order by format) f
+      (select coalesce(json_agg(json_build_object('id', occasion, 'count', c, 'format', f, 'fit', fit)), '[]') from (
+         select o as occasion, count(*)::int c, mode() within group (order by format) f, avg(relevance)::real fit
            from scored, unnest(array_remove(array[occasion] || extra_occasions, null)) o
           where ${passes('occasion')} group by o order by c desc) x) as occasions,
       (select coalesce(json_agg(json_build_object('id', v, 'count', c)), '[]') from (
@@ -560,15 +604,22 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     label: labelFor(vocab, kind, f.id),
     count: f.count,
   })
-  const occasionCounts = row.occasions as { id: string; count: number; format: string | null }[]
+  // Events whose cards fit the search words better come first among events of similar size.
+  const fitScore = (x: { count: number; fit?: number | null }) => Math.sqrt(x.count) * (x.fit ?? 0)
+  const occasionCounts = row.occasions as { id: string; count: number; format: string | null; fit: number | null }[]
 
   // Quick tags: when the query does not name a clear occasion, offer the occasions that have results.
+  // A typed event ("kitty party") is clear even when matched loosely; a broad family ("anniversary") is not.
   let quickTags: QuickTag[] = []
-  // A family like "anniversary" also gets tags (Wedding Anniversary, Company Anniversary).
-  const ambiguous = !strictOccasion || !!strictOccasion.abstract
-  if (ambiguous && !filters.occasions?.length && occasionCounts.length > 1 && query.trim()) {
+  const ambiguous = !namedEvent && (!strictOccasion || !!strictOccasion.abstract)
+  if (ambiguous && !filters.occasions?.length && occasionCounts.length > 1 && (query.trim() || chosenGroups.length)) {
     const formatLabel = intent.format ? FORMAT_BY_ID.get(intent.format)?.label : undefined
-    quickTags = occasionCounts.slice(0, RANKING.maxQuickTags).map((o) => {
+    // Inside a chosen group ("Parties"), only its own events: not the other occasions its cards also fit.
+    const inGroup = new Set(groupOccasions)
+    const options = (chosenGroups.length ? occasionCounts.filter((o) => inGroup.has(o.id)) : occasionCounts)
+      .slice()
+      .sort((a, b) => fitScore(b) - fitScore(a))
+    quickTags = options.slice(0, RANKING.maxQuickTags).map((o) => {
       const occLabel = labelFor(vocab, 'occasion', o.id)
       // "Birthday Dinner" reads well; long labels ("Indian Festivals & Ceremonies") stay as they are.
       const showFormat =
@@ -581,7 +632,7 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   const orientationCounts = row.orientation_counts as { portrait: number; landscape: number }
   const photoCounts = row.photo_counts as { with: number; without: number }
   const facets: SearchResponse['facets'] = {
-    occasion: occasionCounts.map(vocabLabel('occasion')),
+    occasion: occasionCounts.map((o) => ({ ...vocabLabel('occasion')(o), fit: o.fit ?? undefined })),
     themes: (row.themes as FacetValue[]).map(vocabLabel('theme')),
     styles: (row.styles as FacetValue[]).map(vocabLabel('style')),
     colors: (row.colors as FacetValue[]).map(label(COLOR_BY_ID)),
@@ -605,12 +656,12 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     ],
   }
   // Tag suggestions count only the best-matching results (see the focus query).
-  const focusRows = row.focus_facets as { g: string; id: string; count: number }[]
-  const focusOf = (g: string, toLabel: (f: { id: string; count: number }) => FacetValue) =>
+  const focusRows = row.focus_facets as { g: string; id: string; count: number; fit: number | null }[]
+  const focusOf = (g: string, toLabel: (f: { id: string; count: number; fit: number | null }) => FacetValue) =>
     focusRows.filter((f) => f.g === g).sort((a, b) => b.count - a.count).map(toLabel)
   const focusFacets: SearchResponse['facets'] = {
     ...facets,
-    occasion: focusOf('occasion', vocabLabel('occasion')),
+    occasion: focusOf('occasion', (f) => ({ ...vocabLabel('occasion')(f), fit: f.fit ?? undefined })),
     themes: focusOf('themes', vocabLabel('theme')),
     assets: focusOf('assets', vocabLabel('asset')),
     styles: focusOf('styles', vocabLabel('style')),
@@ -622,12 +673,30 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     photo: focusOf('photo', (f) => ({ id: 'with', label: 'With photo', count: f.count })),
   }
   const suggested = await suggestTags({ facets: focusFacets, total: row.focus_total, intent, filters, appliedOccasion: strictOccasion?.id ?? null, vocab, browsing: !query.trim() && activeTags(filters, vocab).length === 0 })
-  // A query that fits many occasions ("Dinner Invitation") first asks which one: Birthday Dinner, Wedding
-  // Dinner, Christmas Dinner… Then a few other chips (theme, element…) follow.
-  const suggestedTags: SuggestedTag[] = quickTags.length
+  // A query that names no event ("pizza", "dinner invitation") first asks what kind of event: Birthday,
+  // Parties, Business & Community. A group whose results are nearly all one occasion shows that occasion.
+  // Tapping a group ("Parties") then offers its events (Kitty Party, Sleepover, Food Party) as quick tags.
+  const cfg = RANKING.suggestions
+  let groupTags: SuggestedTag[] = []
+  if (!occDef && !filters.occasions?.length && !chosenGroups.length && query.trim()) {
+    const groupOf = new Map(groupedOccasions.map((t) => [t.id, groupIdOf(t)]))
+    groupTags = (row.groups as { id: string; count: number; fit: number | null }[])
+      .filter((g) => g.count >= cfg.minCount && OCCASION_GROUP_BY_ID.has(g.id))
+      .sort((a, b) => fitScore(b) - fitScore(a))
+      .slice(0, cfg.groups.groups.max)
+      .map((g) => {
+        const top = occasionCounts.filter((o) => groupOf.get(o.id) === g.id).sort((a, b) => b.count - a.count)[0]
+        return top && top.count >= g.count * cfg.singleOccasionGroupShare
+          ? { group: 'occasions' as const, value: top.id, label: labelFor(vocab, 'occasion', top.id), count: top.count }
+          : { group: 'groups' as const, value: g.id, label: groupLabel(vocab, g.id), count: g.count }
+      })
+  }
+  const suggestedTags: SuggestedTag[] = groupTags.length > 1
+    ? [...groupTags, ...suggested.filter((t) => t.group !== 'occasions').slice(0, cfg.afterOccasionTags)]
+    : quickTags.length
     ? [
         ...quickTags
-          .filter((t) => t.count >= RANKING.suggestions.minCount)
+          .filter((t) => t.count >= (chosenGroups.length ? cfg.minCountInGroup : cfg.minCount))
           .map((t) => ({ group: 'occasions' as const, value: t.occasion, label: t.label, count: t.count })),
         ...suggested.filter((t) => t.group !== 'occasions').slice(0, RANKING.suggestions.afterOccasionTags),
       ]

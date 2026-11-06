@@ -12,7 +12,8 @@ import { getVocabulary, labelFor, type Vocabulary } from '@/lib/search/vocabular
  * Everything known about one template. Used by the full page (/templates/[id])
  * and by the modal that opens over search results.
  */
-export async function TemplateDetailsView({ id }: { id: string }) {
+/** `debug` adds the AI's raw answer (open with `?debug=true`). */
+export async function TemplateDetailsView({ id, debug = false }: { id: string; debug?: boolean }) {
   const templateId = Number(id)
   if (!Number.isInteger(templateId) || templateId <= 0) notFound()
   const [t, vocab] = await Promise.all([getTemplateDetails(templateId), getVocabulary()])
@@ -132,7 +133,7 @@ export async function TemplateDetailsView({ id }: { id: string }) {
           {t.oldTags && <TagList label="Older tags" values={t.oldTags.split(',').map((x) => x.trim()).filter(Boolean)} />}
         </Block>
 
-        {t.rawTerms && (
+        {debug && t.rawTerms && (
           <Block title="Words returned by AI" note="Before mapping to the vocabulary">
             <pre className="bg-muted/50 overflow-x-auto rounded-md p-3 text-xs">{JSON.stringify(t.rawTerms, null, 2)}</pre>
           </Block>

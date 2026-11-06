@@ -4,6 +4,8 @@ export const RANKING = {
   weights: { relevance: 0.75, freshness: 0.15, quality: 0.1 },
   /** Exact milestone match ("5th" template for "5th anniversary"). */
   milestoneBonus: 0.08,
+  /** One extra detail-hit point for matching a requested asset, ahead of editable milestone text. */
+  assetPriorityWeight: 1,
   /**
    * Card also fits another occasion named in the query ("halloween" in "halloween wedding").
    * Larger than freshness + quality together (0.25), so fitting both beats being newer.
@@ -53,13 +55,19 @@ export const RANKING = {
     minResults: 8,
     /** A chip must keep at least this many results and this share of them… */
     minCount: 5,
+    /** After a group is chosen ("Parties"), its events need fewer cards: 3 Kitty Party cards are a real choice. */
+    minCountInGroup: 2,
     minShare: 0.02,
     /** …and must not keep almost all of them (it would not narrow anything). */
     maxShare: 0.85,
     /** How much more common a value is here than in the whole catalog counts, up to this cap. */
     maxLift: 6,
     /** Preference per kind of chip, and how many chips each kind may have. */
+    /** A group chip ("Birthday") becomes its occasion chip when that occasion has this share of the group's cards. */
+    singleOccasionGroupShare: 0.9,
     groups: {
+      /** Occasion groups (Birthday, Parties…), the first step for a query that names no event. */
+      groups: { weight: 1.4, max: 4 },
       occasions: { weight: 1.4, max: 3 },
       milestones: { weight: 1.25, max: 3 },
       themes: { weight: 1.15, max: 3 },

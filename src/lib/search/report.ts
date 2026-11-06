@@ -24,7 +24,8 @@ type JsonRecord = Record<string, unknown>
 const isRecord = (value: unknown): value is JsonRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const asString = (value: unknown) => (typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '')
+const asString = (value: unknown) =>
+  typeof value === 'string' ? value : typeof value === 'number' ? String(value) : ''
 const asNumber = (value: unknown) => {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
   return Number.isFinite(n) ? n : null
@@ -36,7 +37,12 @@ const asBoolean = (value: unknown) => {
   return null
 }
 const asStringArray = (value: unknown) =>
-  Array.isArray(value) ? value.map(asString).map((v) => v.trim()).filter(Boolean) : []
+  Array.isArray(value)
+    ? value
+        .map(asString)
+        .map((v) => v.trim())
+        .filter(Boolean)
+    : []
 
 function pick(record: JsonRecord, keys: string[]): unknown {
   for (const key of keys) {
@@ -60,7 +66,10 @@ function isItemArray(value: unknown): value is JsonRecord[] {
     Array.isArray(value) &&
     value.length > 0 &&
     value.every((item) => isRecord(item)) &&
-    value.some((item) => !!pick(item, ['sample_image', 'preview_url', 'previewUrl', 'image', 'thumbnail', 'template_name', 'name']))
+    value.some(
+      (item) =>
+        !!pick(item, ['sample_image', 'preview_url', 'previewUrl', 'image', 'thumbnail', 'template_name', 'name']),
+    )
   )
 }
 
@@ -162,7 +171,19 @@ function liveSuggestedTag(value: unknown): ReportSuggestedTag | null {
   if (!isRecord(value)) return null
 
   const label = asString(
-    pick(value, ['label', 'name', 'title', 'extension', 'extension_name', 'suggestion', 'text', 'keyword', 'tag_name', 'tag', 'value']),
+    pick(value, [
+      'label',
+      'name',
+      'title',
+      'extension',
+      'extension_name',
+      'suggestion',
+      'text',
+      'keyword',
+      'tag_name',
+      'tag',
+      'value',
+    ]),
   ).trim()
   const id = asString(pick(value, ['value', 'id', 'key', 'slug'])).trim()
   const display = label || id
@@ -403,15 +424,15 @@ export async function saveSearchReport(
   query: string,
   live: ReportCapture,
   current: ReportCapture,
-  phase?: number,
+  { phase, version }: { phase: number; version: number },
 ) {
   const normalized = normalizeQuery(query) || query.trim().toLowerCase()
   const { rows } = await db.query<{ id: string }>(
     `insert into search_report
-       (query, normalized_query, phase, live_snapshot, current_snapshot, live_error, current_error,
+       (query, normalized_query, phase, version, live_snapshot, current_snapshot, live_error, current_error,
         live_total, current_total, live_count, current_count, updated_at)
-     values ($1, $2, coalesce($3::integer, 1), $4, $5, $6, $7, $8, $9, $10, $11, now())
-     on conflict (normalized_query, phase) do update set
+     values ($1, $2, $3, $12, $4, $5, $6, $7, $8, $9, $10, $11, now())
+     on conflict (normalized_query, version, phase) do update set
        query = excluded.query,
        live_snapshot = excluded.live_snapshot,
        current_snapshot = excluded.current_snapshot,
@@ -426,7 +447,7 @@ export async function saveSearchReport(
     [
       query.trim(),
       normalized,
-      phase ?? null,
+      phase,
       live.snapshot ? JSON.stringify(live.snapshot) : null,
       current.snapshot ? JSON.stringify(current.snapshot) : null,
       live.error,
@@ -435,9 +456,37 @@ export async function saveSearchReport(
       current.snapshot?.total ?? null,
       live.snapshot?.results.length ?? 0,
       current.snapshot?.results.length ?? 0,
+      version,
     ],
   )
   return rows[0].id
+}
+
+/** Reports in a version and phase whose live capture failed, least recently tried first. */
+export async function listLiveErrorReports(version: number, phase: number) {
+  const { rows } = await db.query<{ id: string; query: string }>(
+    `select id::text, query from search_report
+     where version = $1 and phase = $2 and (live_error is not null or live_snapshot is null)
+     order by updated_at, id`,
+    [version, phase],
+  )
+  return rows
+}
+
+/** Replaces only the live side of a report; the current side and feedback stay as they are. */
+export async function saveLiveCapture(id: string, live: ReportCapture) {
+  await db.query(
+    `update search_report set
+       live_snapshot = $2, live_error = $3, live_total = $4, live_count = $5, updated_at = now()
+     where id = $1`,
+    [
+      id,
+      live.snapshot ? JSON.stringify(live.snapshot) : null,
+      live.error,
+      live.snapshot?.total ?? null,
+      live.snapshot?.results.length ?? 0,
+    ],
+  )
 }
 
 function parseSnapshot(value: unknown, source: ReportSnapshot['source']): ReportSnapshot | null {
@@ -490,8 +539,7 @@ function parseSnapshot(value: unknown, source: ReportSnapshot['source']): Report
 }
 
 function parseFeedback(row: JsonRecord): ReportFeedback | null {
-  const result = (value: unknown): ReportResult | null =>
-    isReportResultValue(value) ? value : null
+  const result = (value: unknown): ReportResult | null => (isReportResultValue(value) ? value : null)
   const hasFeedback =
     row.live_result !== null ||
     row.current_result !== null ||
@@ -520,6 +568,7 @@ function mapRow(row: JsonRecord): ReportRow {
     id: String(row.id),
     query: asString(row.query),
     phase: asNumber(row.phase) ?? 1,
+    version: asNumber(row.version) ?? 1,
     liveTotal: asNumber(row.live_total),
     currentTotal: asNumber(row.current_total),
     liveCount: asNumber(row.live_count) ?? 0,
@@ -532,7 +581,7 @@ function mapRow(row: JsonRecord): ReportRow {
   }
 }
 
-const ROW_COLUMNS = `r.id, r.query, r.phase, r.live_total, r.current_total, r.live_count, r.current_count,
+const ROW_COLUMNS = `r.id, r.query, r.phase, r.version, r.live_total, r.current_total, r.live_count, r.current_count,
   r.live_error, r.current_error, r.created_at, r.updated_at,
   f.live_result, f.live_freshness_issue, f.live_reason,
   f.current_result, f.current_freshness_issue, f.current_reason, f.updated_at as feedback_updated_at`
@@ -553,30 +602,90 @@ export type ReportErrorFilter = 'any' | 'live' | 'current'
 
 export type SearchReportFilters = {
   query?: string
+  version?: number
   phase?: number
   occasion?: string
+  caseType?: string
   feedback?: ReportFeedbackFilter
   error?: ReportErrorFilter
 }
 
 export type SearchReportFilterOptions = {
+  versions: Array<{ version: number; sourceFile: string; testCases: number }>
   phases: Array<{ phase: number; count: number }>
   occasions: string[]
+  caseTypes: Array<{ caseType: string; count: number }>
 }
 
-export async function getSearchReportFilterOptions(): Promise<SearchReportFilterOptions> {
-  const [phaseRows, occasionRows] = await Promise.all([
+/** Reads report filters from URL parameters (q, v, phase, occasion, case, feedback, error). */
+export function reportFiltersFromParams(get: (key: string) => string | null | undefined): SearchReportFilters {
+  const number = (raw: string | null | undefined) => {
+    const value = raw && /^\d+$/.test(raw) ? Number(raw) : Number.NaN
+    return Number.isSafeInteger(value) && value > 0 ? value : undefined
+  }
+  const feedback = get('feedback')
+  const error = get('error')
+  return {
+    query: get('q')?.trim().slice(0, 200) || undefined,
+    version: number(get('v')),
+    phase: number(get('phase')),
+    occasion: get('occasion') || undefined,
+    caseType: get('case') || undefined,
+    feedback: feedback === 'unreviewed' || feedback === 'incomplete' || feedback === 'complete' ? feedback : undefined,
+    error: error === 'any' || error === 'live' || error === 'current' ? error : undefined,
+  }
+}
+
+/** The URL parameters for report filters, the reverse of reportFiltersFromParams. */
+export function reportFilterParams(filters: SearchReportFilters): URLSearchParams {
+  const params = new URLSearchParams()
+  if (filters.query) params.set('q', filters.query)
+  if (filters.version !== undefined) params.set('v', String(filters.version))
+  if (filters.phase !== undefined) params.set('phase', String(filters.phase))
+  if (filters.occasion) params.set('occasion', filters.occasion)
+  if (filters.caseType) params.set('case', filters.caseType)
+  if (filters.feedback) params.set('feedback', filters.feedback)
+  if (filters.error) params.set('error', filters.error)
+  return params
+}
+
+/** Filter choices. Phases and case types are those of the chosen version, when one is chosen. */
+export async function getSearchReportFilterOptions(version?: number): Promise<SearchReportFilterOptions> {
+  const v = version ?? null
+  const [versionRows, phaseRows, occasionRows, caseTypeRows] = await Promise.all([
+    db.query<{ version: number; source_file: string; test_cases: number }>(
+      `select v.version, v.source_file,
+              (select count(*)::int from search_report_import i where i.version = v.version) as test_cases
+         from search_report_version v
+        order by v.version desc`,
+    ),
     db.query<{ phase: number; count: number }>(
-      'select phase, count(*)::int as count from search_report group by phase order by phase',
+      `select phase, count(*)::int as count from search_report
+        where ($1::int is null or version = $1) group by phase order by phase`,
+      [v],
     ),
     db.query<{ occasion: string }>(
-      `select distinct occasion
-         from search_report_import
-        where occasion <> ''
-        order by occasion`,
+      `select distinct occasion from search_report_import
+        where occasion <> '' and ($1::int is null or version = $1) order by occasion`,
+      [v],
+    ),
+    db.query<{ case_type: string; count: number }>(
+      `select case_type, count(*)::int as count from search_report_import
+        where case_type <> '' and ($1::int is null or version = $1)
+        group by case_type order by case_type`,
+      [v],
     ),
   ])
-  return { phases: phaseRows.rows, occasions: occasionRows.rows.map((row) => row.occasion) }
+  return {
+    versions: versionRows.rows.map((row) => ({
+      version: row.version,
+      sourceFile: row.source_file,
+      testCases: row.test_cases,
+    })),
+    phases: phaseRows.rows,
+    occasions: occasionRows.rows.map((row) => row.occasion),
+    caseTypes: caseTypeRows.rows.map((row) => ({ caseType: row.case_type, count: row.count })),
+  }
 }
 
 function reportWhere(filters: SearchReportFilters) {
@@ -588,6 +697,7 @@ function reportWhere(filters: SearchReportFilters) {
   }
 
   if (filters.query) add((parameter) => `r.query ilike ${parameter}`, `%${filters.query}%`)
+  if (filters.version !== undefined) add((parameter) => `r.version = ${parameter}`, filters.version)
   if (filters.phase !== undefined) add((parameter) => `r.phase = ${parameter}`, filters.phase)
   if (filters.occasion) {
     add(
@@ -602,6 +712,18 @@ function reportWhere(filters: SearchReportFilters) {
             and i.occasion = ${parameter}
       )`,
       filters.occasion,
+    )
+  }
+  if (filters.caseType) {
+    add(
+      (parameter) => `exists (
+        select 1
+          from search_report_import i
+          where i.version = r.version
+            and i.normalized_query = r.normalized_query
+            and i.case_type = ${parameter}
+      )`,
+      filters.caseType,
     )
   }
   if (filters.feedback === 'unreviewed') {
@@ -669,6 +791,57 @@ export async function listSearchReports({
     [...where.values, size, (current - 1) * size],
   )
   return { reports: rows.map(mapRow), total, page: current, pageSize: size, totalPages }
+}
+
+/** Most rows one export returns. */
+export const REPORT_EXPORT_LIMIT = 5000
+
+export type ReportExportRow = ReportRow & {
+  /** The sheet row this export row belongs to; null for a search captured without a sheet. */
+  testCaseId: string | null
+  testQuery: string
+  caseType: string
+  whatItTests: string
+  expectedResult: string
+  extra: Record<string, string>
+  liveSnapshot: ReportSnapshot | null
+  currentSnapshot: ReportSnapshot | null
+}
+
+/**
+ * One row per test case (sheet row) of every report matching the filters, with the report's snapshots.
+ * Test cases that share a search ("Birthday" and "BIRTHDAY") each get a row with the same results.
+ * With a case type filter, only that case type's rows. Ordered by version, phase and sheet order.
+ */
+export async function listSearchReportsForExport(filters: SearchReportFilters = {}): Promise<ReportExportRow[]> {
+  const where = reportWhere(filters)
+  const caseParam = `$${where.values.length + 1}`
+  const { rows } = await db.query(
+    `select ${ROW_COLUMNS}, r.live_snapshot, r.current_snapshot,
+            i.id as test_case_id, coalesce(i.query, r.query) as test_query,
+            coalesce(i.case_type, '') as case_type, coalesce(i.what_it_tests, '') as what_it_tests,
+            coalesce(i.expected_result, '') as expected_result, coalesce(i.extra, '{}') as extra
+       from search_report r
+       left join search_report_feedback f on f.report_id = r.id
+       left join search_report_import i
+              on i.version = r.version and i.normalized_query = r.normalized_query
+             and (${caseParam}::text is null or i.case_type = ${caseParam})
+       ${where.sql}
+      order by r.version, r.phase, i.id nulls last, r.id
+      limit ${REPORT_EXPORT_LIMIT}`,
+    [...where.values, filters.caseType ?? null],
+  )
+  return rows.map((row) => ({
+    ...mapRow(row),
+    testCaseId: row.test_case_id ? String(row.test_case_id) : null,
+    testQuery: asString(row.test_query),
+    caseType: asString(row.case_type),
+    whatItTests: asString(row.what_it_tests),
+    expectedResult: asString(row.expected_result),
+    extra: (row.extra as Record<string, string>) ?? {},
+    liveSnapshot: parseSnapshot(row.live_snapshot, 'live'),
+    currentSnapshot: parseSnapshot(row.current_snapshot, 'current'),
+  }))
 }
 
 export async function getSearchReport(id: string): Promise<ReportDetail | null> {

@@ -3,21 +3,10 @@ import { Pagination } from '@/components/search/pagination'
 import { ReportQueryTags } from '@/components/search/report-query-tags'
 import { ReportFeedbackCell } from '@/components/search/report-feedback-cell'
 import { Badge } from '@/components/ui/badge'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { QueryTag } from '@/lib/search/query-tags'
 import { formatReportDate } from '@/lib/search/report'
-import {
-  REPORT_RESULT_LABELS,
-  type ReportFeedback,
-  type ReportRow,
-} from '@/lib/search/report-types'
+import { REPORT_RESULT_LABELS, type ReportFeedback, type ReportRow } from '@/lib/search/report-types'
 
 function countLabel(count: number, total: number | null) {
   return total === null ? `${count} shown` : `${count} of ${total}`
@@ -100,7 +89,9 @@ export function ReportTable({
 
                 <div className="mt-2 flex items-center gap-2 text-xs">
                   <span className="text-muted-foreground">Phase</span>
-                  <Badge variant="secondary">{report.phase}</Badge>
+                  <Badge variant="secondary">
+                    v{report.version} · P{report.phase}
+                  </Badge>
                 </div>
 
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
@@ -162,16 +153,15 @@ export function ReportTable({
               reports.map((report) => (
                 <TableRow key={report.id} className="align-top">
                   <TableCell className="max-w-96 py-3 pl-4 font-medium whitespace-normal">
-                    <Link
-                      href={`/search/report/${report.id}`}
-                      className="underline-offset-4 hover:underline"
-                    >
+                    <Link href={`/search/report/${report.id}`} className="underline-offset-4 hover:underline">
                       {report.query}
                     </Link>
                     <ReportQueryTags query={report.query} tags={report.tags} />
                   </TableCell>
                   <TableCell className="py-3">
-                    <Badge variant="secondary">{report.phase}</Badge>
+                    <Badge variant="secondary">
+                      v{report.version} · P{report.phase}
+                    </Badge>
                   </TableCell>
                   <TableCell className="py-3">
                     <div className="flex items-center gap-1.5">
@@ -210,12 +200,7 @@ export function ReportTable({
         <p className="text-muted-foreground text-xs tabular-nums">
           {total === 0 ? 'No reports' : `Showing ${first}–${last} of ${total.toLocaleString()}`}
         </p>
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          label="Report pages"
-          hrefForPage={hrefForPage}
-        />
+        <Pagination page={page} totalPages={totalPages} label="Report pages" hrefForPage={hrefForPage} />
       </div>
     </div>
   )

@@ -55,7 +55,7 @@ export type FailedQuery = {
   lastSearchedAt: string
 }
 
-export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; to: Date; limit?: number }) {
+export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; to: Date; limit?: number | null }) {
   const { rows } = await db.query(
     `with logs as (
        select l.*,
