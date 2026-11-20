@@ -15,6 +15,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | src/app/search/** | .ai/rules/src-app-search.md |
 | src/app/** | .ai/rules/src-app.md |
 | src/components/ai-elements/** | .ai/rules/src-components-ai-elements.md |
+| src/components/search/how-it-works/** | .ai/rules/src-components-search-how-it-works.md |
 | src/components/ui/** | .ai/rules/src-components-ui.md |
 | src/lib/search/** | .ai/rules/src-lib-search.md |
 | src/lib/** | .ai/rules/src-lib.md |

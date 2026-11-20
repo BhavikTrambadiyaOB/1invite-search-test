@@ -404,6 +404,7 @@ export async function captureCurrentReport(query: string): Promise<ReportCapture
         source: 'current',
         capturedAt: new Date().toISOString(),
         total: first.total,
+        fallback: first.fallback ?? null,
         results: items,
         suggestedTags: first.suggestedTags.map((tag) => ({
           group: tag.group,
@@ -546,7 +547,8 @@ function parseFeedback(row: JsonRecord): ReportFeedback | null {
     row.live_freshness_issue !== null ||
     row.current_freshness_issue !== null ||
     !!row.live_reason ||
-    !!row.current_reason
+    !!row.current_reason ||
+    !!row.current_tags_reason
   if (!hasFeedback) return null
   return {
     liveResult: result(row.live_result),
@@ -555,6 +557,7 @@ function parseFeedback(row: JsonRecord): ReportFeedback | null {
     currentResult: result(row.current_result),
     currentFreshnessIssue: typeof row.current_freshness_issue === 'boolean' ? row.current_freshness_issue : null,
     currentReason: asString(row.current_reason),
+    currentTagsReason: row.current_tags_reason ? asString(row.current_tags_reason) : null,
     updatedAt: row.feedback_updated_at ? new Date(String(row.feedback_updated_at)).toISOString() : null,
   }
 }
@@ -584,7 +587,7 @@ function mapRow(row: JsonRecord): ReportRow {
 const ROW_COLUMNS = `r.id, r.query, r.phase, r.version, r.live_total, r.current_total, r.live_count, r.current_count,
   r.live_error, r.current_error, r.created_at, r.updated_at,
   f.live_result, f.live_freshness_issue, f.live_reason,
-  f.current_result, f.current_freshness_issue, f.current_reason, f.updated_at as feedback_updated_at`
+  f.current_result, f.current_freshness_issue, f.current_reason, f.current_tags_reason, f.updated_at as feedback_updated_at`
 
 /** Reports per page in the report table. */
 export const REPORT_PAGE_SIZE = 20
@@ -862,6 +865,22 @@ export async function getSearchReport(id: string): Promise<ReportDetail | null> 
   }
 }
 
+export type ReportSibling = { id: string; version: number; phase: number }
+
+/** Every saved report of the same query (all versions and phases), so a report can switch to another run. */
+export async function listReportSiblings(id: string): Promise<ReportSibling[]> {
+  if (!/^\d+$/.test(id)) return []
+  const { rows } = await db.query<{ id: string; version: number; phase: number }>(
+    `select s.id::text, s.version, s.phase
+       from search_report r
+       join search_report s on s.normalized_query = r.normalized_query
+      where r.id = $1::bigint
+      order by s.version desc, s.phase`,
+    [id],
+  )
+  return rows.map((row) => ({ id: row.id, version: Number(row.version), phase: Number(row.phase) }))
+}
+
 export type ReportFeedbackInput = {
   reportId: string
   liveResult: ReportResult
@@ -870,6 +889,8 @@ export type ReportFeedbackInput = {
   currentResult: ReportResult
   currentFreshnessIssue: boolean
   currentReason: string
+  /** Empty or missing is saved as null. */
+  currentTagsReason?: string | null
 }
 
 /** Saves the six feedback answers, replacing the previous ones for this report. */
@@ -877,8 +898,8 @@ export async function saveReportFeedback(input: ReportFeedbackInput) {
   const result = await db.query(
     `insert into search_report_feedback
        (report_id, live_result, live_freshness_issue, live_reason,
-        current_result, current_freshness_issue, current_reason, updated_at)
-     select $1::bigint, $2, $3, $4, $5, $6, $7, now()
+        current_result, current_freshness_issue, current_reason, current_tags_reason, updated_at)
+     select $1::bigint, $2, $3, $4, $5, $6, $7, $8, now()
       where exists (select 1 from search_report where id = $1::bigint)
      on conflict (report_id) do update set
        live_result = excluded.live_result,
@@ -887,6 +908,7 @@ export async function saveReportFeedback(input: ReportFeedbackInput) {
        current_result = excluded.current_result,
        current_freshness_issue = excluded.current_freshness_issue,
        current_reason = excluded.current_reason,
+       current_tags_reason = excluded.current_tags_reason,
        updated_at = now()`,
     [
       input.reportId,
@@ -896,6 +918,7 @@ export async function saveReportFeedback(input: ReportFeedbackInput) {
       input.currentResult,
       input.currentFreshnessIssue,
       input.currentReason,
+      input.currentTagsReason?.trim() || null,
     ],
   )
   return (result.rowCount ?? 0) > 0

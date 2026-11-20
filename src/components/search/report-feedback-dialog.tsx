@@ -50,10 +50,12 @@ function SideFields({
   label,
   value,
   onChange,
+  children,
 }: {
   label: string
   value: SideState
   onChange: (next: SideState) => void
+  children?: React.ReactNode
 }) {
   const idPrefix = label === 'Live' ? 'live' : 'current'
   return (
@@ -114,6 +116,7 @@ function SideFields({
           className="min-h-20"
         />
       </div>
+      {children}
     </fieldset>
   )
 }
@@ -133,6 +136,7 @@ export function ReportFeedbackDialog({
   const [error, setError] = useState<string | null>(null)
   const [live, setLive] = useState<SideState>(sideState(null, null, ''))
   const [current, setCurrent] = useState<SideState>(sideState(null, null, ''))
+  const [tagsReason, setTagsReason] = useState('')
 
   function reset() {
     setError(null)
@@ -144,6 +148,7 @@ export function ReportFeedbackDialog({
         feedback?.currentReason ?? '',
       ),
     )
+    setTagsReason(feedback?.currentTagsReason ?? '')
   }
 
   async function submit(event: React.FormEvent) {
@@ -166,6 +171,8 @@ export function ReportFeedbackDialog({
           currentResult: current.result,
           currentFreshnessIssue: current.freshnessIssue === 'yes',
           currentReason: current.reason,
+          // Empty means the tags are fine: saved as null.
+          currentTagsReason: tagsReason.trim() || null,
         }),
       })
       const data = (await response.json().catch(() => null)) as { error?: string } | null
@@ -194,14 +201,28 @@ export function ReportFeedbackDialog({
         <DialogHeader>
           <DialogTitle>Search report feedback</DialogTitle>
           <DialogDescription>
-            “{query}” · answer for both sides, six fields in total.
+            “{query}” · answer for both sides. The tags reason is optional.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="flex flex-col gap-4">
           <div className="grid gap-4 md:grid-cols-2">
             <SideFields label="Live" value={live} onChange={setLive} />
-            <SideFields label="Current version" value={current} onChange={setCurrent} />
+            <SideFields label="Current version" value={current} onChange={setCurrent}>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium" htmlFor="current-tags-reason">
+                  Suggested tags reason <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <Textarea
+                  id="current-tags-reason"
+                  value={tagsReason}
+                  onChange={(event) => setTagsReason(event.target.value)}
+                  placeholder="What is wrong with the suggested tags? Leave empty if they are fine."
+                  maxLength={2000}
+                  className="min-h-16"
+                />
+              </div>
+            </SideFields>
           </div>
 
           {error && <p className="text-destructive text-sm">{error}</p>}

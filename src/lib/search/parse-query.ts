@@ -19,6 +19,9 @@ import {
   MILESTONE_BIRTHDAYS,
   CHAT_PREFIX,
   DATE_WORDS,
+  QUERY_AUDIENCES,
+  JOINT_WORDS,
+  KIDS_WORDS,
 } from './taxonomy'
 import { compilePhrases, extractMilestone, normalizeText, queryText, stripMilestones } from './text'
 import type { SearchIntent } from './types'
@@ -31,6 +34,7 @@ const STOPWORDS = new Set([
   'invite', 'invites', 'invitacion', 'plantilla', 'de', 'online', 'printable', 'digital', 'evite', 'ecard',
   'free', 'premium', 'paid', 'best', 'new', 'latest', 'cute', 'beautiful', 'nice', 'simple', 'party', 'celebration',
   'event', 'year', 'years', 'old', 'th', 'st', 'nd', 'rd', 'child', 'children', 'kid', 'kids', 'toddler', 'baby',
+  'olds', 'its', 'it', 'is', 'i', 'im', 'mine',
 ])
 
 
@@ -62,6 +66,7 @@ const C_GENDERS = compileDefs(GENDERS.filter((g) => g.id !== 'neutral'))
 const C_COLORS = compileDefs(COLORS)
 const C_MOODS = compileDefs(MOODS)
 const C_LANGUAGES = compileDefs(LANGUAGES.filter((l) => l.phrases.length > 0))
+const C_AUDIENCES = compileDefs(QUERY_AUDIENCES)
 /** "photo invitation", "with picture": the person wants a card with their photo. */
 const PHOTO_QUERY = /\b(?:with (?:a |my |your )?)?(?:photo|photos|picture|pictures|pic|pics|photograph)\b/g
 
@@ -260,7 +265,31 @@ export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIn
     occasion = specific
     occasionConfidence = alsoConfidence.get(specific) ?? occasionConfidence
   }
+  // "save the date kid birthday": a save-the-date for that birthday, not a wedding one. "Save the date" then
+  // only says the card type. With a wedding word ("wedding save the date") it stays the wedding save-the-date.
+  let savesTheDate = false
+  const otherEvent = alsoOccasions.find((id) => occasionList.find((o) => o.def.id === id)?.def.group !== 'Wedding')
+  if (occasion === 'save_the_date' && otherEvent) {
+    alsoOccasions.splice(alsoOccasions.indexOf(otherEvent), 1)
+    occasion = otherEvent
+    occasionConfidence = alsoConfidence.get(otherEvent) ?? occasionConfidence
+    savesTheDate = true
+  }
+  // "cowgirl invitations for 13 year olds", "turning 5": an age with no event named is a birthday.
+  if (!occasion && milestone && /\b(?:years? olds?|yrs? olds?|year olds?|turning)\b/.test(normalized)) {
+    occasion = 'birthday'
+    occasionConfidence = 1
+  }
   if (occasion === 'birthday' && milestone && MILESTONE_BIRTHDAYS[milestone]) occasion = MILESTONE_BIRTHDAYS[milestone]
+  // "joint kids party, birthday", "birthday for children": a kids birthday. The words are then understood.
+  const kidsWord = new RegExp(`\\b(?:${KIDS_WORDS.join('|')})\\b`, 'g')
+  // "joint kids party" names no event: a kids party here is a kids birthday.
+  const kidsParty = !occasion && /\bpart(?:y|ies)\b/.test(text.value)
+  if ((occasion === 'birthday' || kidsParty) && kidsWord.test(text.value)) {
+    if (kidsParty) occasionConfidence = 1
+    occasion = 'kids_birthday'
+    text.value = text.value.replace(kidsWord, ' ')
+  }
   text.value = ` ${stripMilestones(text.value)} `
 
   const hasPhoto = take(PHOTO_QUERY, text).length > 0 ? true : null
@@ -279,6 +308,10 @@ export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIn
   // Moods before styles: "fun" and "soft" are moods.
   const moods = matchDefs(C_MOODS, text)
   const styles = matchDefs([...C_STYLES, ...extra.styles], text)
+  // "adult birthday", "teenager birthday": who it is for. Both at once means neither.
+  const audiences = matchDefs(C_AUDIENCES, text)
+  // "toddler" is also read as a kids birthday above, which uses up the word: read the age range from the query.
+  if (audiences.length === 0 && /\btoddlers?\b/.test(normalized)) audiences.push('toddlers')
 
   // Gender: who the event is for. Read from the whole query; both genders ("boy or girl") means none.
   const genderHits = C_GENDERS.filter((g) => g.phrases.some((p) => ((p.re.lastIndex = 0), p.re.test(` ${normalized} `))))
@@ -287,7 +320,8 @@ export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIn
 
   const keywords = text.value
     .split(' ')
-    .filter((w) => w.length > 1 && !STOPWORDS.has(w) && !DATE_WORDS.has(w) && !/^\d+(st|nd|rd|th)?$/.test(w))
+    // Joint words ("joint", "twins") are understood: search ranks joint cards first by them.
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w) && !DATE_WORDS.has(w) && !JOINT_WORDS.includes(w) && !/^\d+(st|nd|rd|th)?$/.test(w))
 
   return {
     occasion,
@@ -295,7 +329,7 @@ export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIn
     alsoOccasions,
     milestone,
     // "Invitation" is the default; only a specific type (save the date, greeting…) narrows the search.
-    docType: docTypes.find((d) => d !== 'invitation') ?? null,
+    docType: savesTheDate ? 'save_the_date' : (docTypes.find((d) => d !== 'invitation') ?? null),
     format: formats.find((f) => f !== 'party') ?? null,
     gender,
     themes,
@@ -304,6 +338,7 @@ export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIn
     colors,
     moods,
     language: languages[0] ?? null,
+    audience: audiences.length === 1 ? audiences[0] : null,
     hasPhoto,
     isFree,
     keywords: [...new Set(keywords)],
@@ -317,6 +352,19 @@ export function isConfidentParse(intent: SearchIntent): boolean {
   const understood =
     !!intent.occasion || !!intent.format || intent.themes.length > 0 || intent.assets.length > 0 ||
     intent.colors.length > 0 || !!intent.docType || !!intent.gender || intent.moods.length > 0 ||
-    !!intent.language || !!intent.hasPhoto
+    !!intent.language || !!intent.hasPhoto || !!intent.audience
   return understood && intent.keywords.length === 0
+}
+
+/**
+ * True when the reading found anything to search for: an occasion, age, design detail, type, format, language
+ * or audience. Leftover words alone ("asdfghjkl", "blah blah blah", "null") do not count.
+ */
+export function understoodAnything(intent: SearchIntent): boolean {
+  return (
+    !!intent.occasion || intent.alsoOccasions.length > 0 || !!intent.milestone || !!intent.format ||
+    intent.themes.length > 0 || intent.assets.length > 0 || intent.colors.length > 0 || intent.styles.length > 0 ||
+    !!intent.docType || !!intent.gender || intent.moods.length > 0 || !!intent.language || !!intent.hasPhoto ||
+    !!intent.audience
+  )
 }

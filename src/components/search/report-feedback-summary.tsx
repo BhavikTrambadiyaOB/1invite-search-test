@@ -13,11 +13,14 @@ function Side({
   result,
   freshnessIssue,
   reason,
+  tagsReason,
 }: {
   label: string
   result: ReportFeedback['liveResult']
   freshnessIssue: boolean | null
   reason: string
+  /** Current version only: undefined hides the line, null shows that nothing was added. */
+  tagsReason?: string | null
 }) {
   return (
     <div className="min-w-0 rounded-lg border p-3">
@@ -31,11 +34,17 @@ function Side({
       <p className="text-muted-foreground mt-2 text-xs break-words whitespace-pre-wrap">
         {reason.trim() || 'No reason added.'}
       </p>
+      {tagsReason !== undefined && (
+        <p className="text-muted-foreground mt-2 border-t pt-2 text-xs break-words whitespace-pre-wrap">
+          <span className="text-foreground font-medium">Tags: </span>
+          {tagsReason?.trim() || 'No tags note (fine as is).'}
+        </p>
+      )}
     </div>
   )
 }
 
-/** All six feedback answers, side by side. Used on the report list and detail pages. */
+/** All feedback answers (plus the current version's optional tags note), side by side. Used on the report list and detail pages. */
 export function ReportFeedbackSummary({ feedback }: { feedback: ReportFeedback | null }) {
   if (!feedback) {
     return (
@@ -58,6 +67,7 @@ export function ReportFeedbackSummary({ feedback }: { feedback: ReportFeedback |
         result={feedback.currentResult}
         freshnessIssue={feedback.currentFreshnessIssue}
         reason={feedback.currentReason}
+        tagsReason={feedback.currentTagsReason ?? null}
       />
     </div>
   )

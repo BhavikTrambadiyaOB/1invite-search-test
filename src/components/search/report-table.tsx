@@ -121,6 +121,13 @@ export function ReportTable({
                     {formatReportDate(report.feedback?.updatedAt ?? report.updatedAt)}
                   </span>
                 </div>
+
+                {report.feedback?.currentTagsReason?.trim() && (
+                  <p className="text-muted-foreground mt-2 border-t pt-2 text-xs break-words whitespace-pre-wrap">
+                    <span className="text-foreground font-medium">Tags: </span>
+                    {report.feedback.currentTagsReason}
+                  </p>
+                )}
               </article>
             </li>
           ))}
@@ -128,22 +135,23 @@ export function ReportTable({
       )}
 
       <div className="hidden rounded-lg border md:block">
-        <Table className="table-fixed min-w-[1040px]">
+        <Table className="table-fixed min-w-[1200px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[23%] pl-4">Query</TableHead>
-              <TableHead className="w-[7%]">Phase</TableHead>
-              <TableHead className="w-[10%]">Live results</TableHead>
-              <TableHead className="w-[12%]">Current results</TableHead>
-              <TableHead className="w-[27%]">Feedback</TableHead>
-              <TableHead className="w-[14%]">Saved</TableHead>
+              <TableHead className="w-[20%] pl-4">Query</TableHead>
+              <TableHead className="w-[6%]">Phase</TableHead>
+              <TableHead className="w-[9%]">Live results</TableHead>
+              <TableHead className="w-[10%]">Current results</TableHead>
+              <TableHead className="w-[20%]">Feedback</TableHead>
+              <TableHead className="w-[15%]">Tags reason</TableHead>
+              <TableHead className="w-[13%]">Saved</TableHead>
               <TableHead className="w-[7%] pr-4 text-right">Report</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {reports.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-muted-foreground h-24 text-center">
+                <TableCell colSpan={8} className="text-muted-foreground h-24 text-center">
                   {hasActiveFilters
                     ? 'No reports match these filters. Adjust or clear the filters above.'
                     : 'No saved queries yet. Run the snapshot command above, then reload this page.'}
@@ -177,6 +185,13 @@ export function ReportTable({
                   </TableCell>
                   <TableCell className="py-3 whitespace-normal">
                     <ReportFeedbackCell feedback={report.feedback} query={report.query} />
+                  </TableCell>
+                  <TableCell className="py-3 text-xs break-words whitespace-pre-wrap">
+                    {report.feedback?.currentTagsReason?.trim() ? (
+                      report.feedback.currentTagsReason
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground py-3 text-xs">
                     {formatReportDate(report.feedback?.updatedAt ?? report.updatedAt)}

@@ -15,6 +15,7 @@
     "search:enrich-ai": "tsx --env-file=.env scripts/enrich-ai.ts",
     "search:report": "tsx --env-file=.env scripts/report-failed-queries.ts",
     "search:report:snapshot": "tsx --env-file=.env scripts/search-report.ts",
+    "search:coverage": "tsx --env-file=.env scripts/query-coverage.ts",
     "search:eval": "tsx --env-file=.env scripts/eval-search.ts",
     "mcp:db": "tsx --env-file=.env scripts/mcp/db-readonly.ts",
     "search:vocab-seed": "tsx --env-file=.env scripts/seed-vocabulary.ts",
@@ -39,7 +40,7 @@
     "hono": "^4.13.14",
     "lucide-react": "^1.62.0",
     "mastra": "^1.35.0",
-    "next": "16.4.3",
+    "next": "16.4.6",
     "pg": "^8.23.1",
     "pluralize": "^8.0.0",
     "radix-ui": "^1.8.1",
@@ -62,6 +63,5 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
-  },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  }
 }

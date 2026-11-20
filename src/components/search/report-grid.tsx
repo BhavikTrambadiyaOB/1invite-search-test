@@ -93,6 +93,12 @@ export function ReportGrid({ snapshot }: { snapshot: ReportSnapshot | null }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {snapshot.fallback === 'not_understood' && (
+        <p className="bg-muted/50 rounded-md border px-3 py-2 text-xs">
+          Nothing in this query was understood and it found nothing, so search showed its browse list (newest, best-rated
+          templates) instead of an empty page.
+        </p>
+      )}
       {!canFilter && (
         <p className="text-muted-foreground text-xs">
           Re-capture this query to enable result filters (Free/PRO, orientation, photo).

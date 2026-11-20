@@ -55,15 +55,17 @@ const STORY: Record<string, ReactNode> = {
   ),
   order: (
     <>
-      It ties with #1, <b>{EXAMPLE.first.name}</b>, on every rung down to 6: both are in the birthday family, both have
-      dinosaur and pink, and no milestone was asked. Rung 7, the near-tie score, decides.
+      16 templates tie on rungs 1–2 and on the design match: birthday family, dinosaur and pink. Inside rung 3 the main
+      color decides: ours lists pink second (pastel, pink…), so pink is a main color. <b>{EXAMPLE.rival.name}</b> lists
+      it third (blue, green, pink), so it drops from #1 to #{EXAMPLE.rival.rank}. Among the mostly-pink ones, rung 7,
+      the near-tie score, decides.
     </>
   ),
   score: (
     <>
-      0.75 × {t.relevance} + 0.15 × {t.freshness} + 0.10 × {t.quality} = <b>{t.score.toFixed(3)}</b>. Their relevance
-      counts as equal (within 0.04), and {EXAMPLE.first.name} has quality score {EXAMPLE.first.quality} vs our{' '}
-      {t.quality}. So ours is <b>#{EXAMPLE.rank}</b>, by a hair.
+      0.75 × {t.relevance} + 0.15 × {t.freshness} + 0.10 × {t.quality} = <b>{t.score.toFixed(3)}</b>. The score only
+      orders cards the ladder could not separate. {EXAMPLE.rival.name} scores a hair higher ({EXAMPLE.rival.score}),
+      but the ladder already put ours ahead, so ours is <b>#{EXAMPLE.rank}</b>.
     </>
   ),
   tags: (
@@ -113,7 +115,7 @@ const RECAPS: Record<number, string[]> = {
     'Templates are removed only for clear reasons: hidden catalog, weak match, wrong occasion when sure, wrong gender.',
   ],
   3: [
-    'The sorting ladder decides first: occasion closeness, asked details matched, closest milestone.',
+    'The sorting ladder decides first: occasion closeness, design matched (main colors first), closest milestone, other details.',
     'The score breaks ties: 75% relevance + 15% freshness + 10% quality.',
     'Relevance = 40% occasion + 20% attributes + 15% words + 25% meaning.',
   ],

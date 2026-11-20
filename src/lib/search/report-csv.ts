@@ -93,6 +93,16 @@ export function csvHeader(text: string): string[] {
   return (parseRows(text.replace(/^\uFEFF/, ''))[0] ?? []).map(clean)
 }
 
+/**
+ * A plain list of search queries: the column whose header mentions "query" (else the first column),
+ * one query per row, empty rows skipped. Duplicates are kept so row numbers match the sheet.
+ */
+export function parseQueryListCsv(text: string): string[] {
+  const [header = [], ...rows] = parseRows(text.replace(/^﻿/, ''))
+  const index = Math.max(0, header.map(clean).findIndex((name) => /query|search/i.test(name)))
+  return rows.map((row) => clean(row[index] ?? '')).filter(Boolean)
+}
+
 /** True when the CSV is a test-case sheet: a query column and a case type (or category) column. */
 export function isTestCaseCsv(text: string): boolean {
   const header = csvHeader(text).map((name) => name.toLowerCase())

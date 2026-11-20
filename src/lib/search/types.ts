@@ -47,6 +47,8 @@ export type SearchIntent = {
   moods: string[]
   /** A language named in the query ("spanish invitation"). */
   language: string | null
+  /** Who the query asks for ("adult birthday", "teenager birthday"): adults or teens, read by the rules. */
+  audience: string | null
   /** true when the query asks for a photo card. */
   hasPhoto: boolean | null
   isFree: boolean | null
@@ -172,4 +174,9 @@ export type SearchResponse = {
   suggestedTags: SuggestedTag[]
   /** The filters already applied, with labels, so a client can show them as removable chips. */
   activeTags: ActiveTag[]
+  /**
+   * "not_understood": the query found nothing and nothing in it was understood ("asdfghjkl"), with no filter
+   * picked, so the results are the browse list instead of an empty page. The query and intent stay the user's.
+   */
+  fallback?: 'not_understood' | null
 }

@@ -7,11 +7,12 @@ import { ReportFeedbackDialog } from '@/components/search/report-feedback-dialog
 import { ReportFeedbackSummary } from '@/components/search/report-feedback-summary'
 import { ReportGrid } from '@/components/search/report-grid'
 import { ReportQueryTags } from '@/components/search/report-query-tags'
+import { ReportRunSwitcher } from '@/components/search/report-run-switcher'
 import { SearchNav } from '@/components/search/search-nav'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { queryTags } from '@/lib/search/query-tags'
-import { formatReportDate, getSearchReport, REPORT_LIMIT } from '@/lib/search/report'
+import { formatReportDate, getSearchReport, listReportSiblings, REPORT_LIMIT } from '@/lib/search/report'
 import type { ReportSnapshot } from '@/lib/search/report-types'
 
 export const metadata: Metadata = {
@@ -33,7 +34,7 @@ async function ReportDetail({ params }: { params: PageProps<'/search/report/[id]
   const { id } = await params
   // Stored snapshots and feedback are read per request, never prerendered.
   await connection()
-  const report = await getSearchReport(id)
+  const [report, siblings] = await Promise.all([getSearchReport(id), listReportSiblings(id)])
   if (!report) notFound()
   const tags = await queryTags(report.query)
 
@@ -48,9 +49,7 @@ async function ReportDetail({ params }: { params: PageProps<'/search/report/[id]
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{report.query}</h1>
-              <Badge variant="secondary">
-                v{report.version} · Phase {report.phase}
-              </Badge>
+              <ReportRunSwitcher siblings={siblings} version={report.version} phase={report.phase} />
             </div>
             <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
               <span>First {REPORT_LIMIT} results</span>

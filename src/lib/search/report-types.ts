@@ -34,6 +34,8 @@ export type ReportSnapshot = {
   suggestedTags?: ReportSuggestedTag[]
   /** A tag API failure does not invalidate the captured search results. */
   suggestionsError?: string | null
+  /** Current side only: the query understood nothing and found nothing, so these are the browse list. */
+  fallback?: 'not_understood' | null
 }
 
 export const REPORT_RESULTS = ['success', 'partial', 'failed'] as const
@@ -52,6 +54,8 @@ export type ReportFeedback = {
   currentResult: ReportResult | null
   currentFreshnessIssue: boolean | null
   currentReason: string
+  /** Note on the current version's suggested tags; null when the tester left it empty. */
+  currentTagsReason: string | null
   updatedAt: string | null
 }
 

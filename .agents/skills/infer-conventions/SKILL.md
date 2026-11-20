@@ -1,15 +1,44 @@
 ---
 name: infer-conventions
-description: "Analyze this Next.js + Mastra + shadcn/ui codebase and record its actual conventions as durable path-scoped rules in .ai/rules. Trigger only when the user explicitly asks to infer, document, update, or standardize project conventions, set up .ai/rules, resolve mixed patterns, or onboard agents to how this repo works. Covers config, App Router/API routes, Mastra agents/tools/memory, shadcn/AI Elements, TypeScript, testing, security, and agent tooling. Do not use for one-off reviews or formatter-owned style."
+description: "Keep this repo's memory of how it works and why it changed. Use automatically, without being asked, at the end of any task that changed behavior, a ranking/parsing/search rule, a setting or feature flag, a data or API contract, or a project convention: record why and when in .ai/decisions and update the matching .ai/rules rule (After a change mode). Also use when the Stop hook says code changed after the last recorded decision. Run the full convention sweep only when asked to infer, document, update or standardize project conventions, set up .ai/rules, resolve mixed patterns, or onboard agents. Skip typo, formatting and test-only edits (mark them with --none)."
 license: MIT
 metadata:
   author: local
-disable-model-invocation: true
 ---
 
 # Infer conventions
 
-Document how this app actually works. Record durable, path-scoped rules in `.ai/rules` so future agents read the right rule before editing a file.
+Keep two records, both path-scoped and committed with the code:
+
+- `.ai/rules/` - how the code works **now**. Timeless, imperative, one or two lines per rule. Read before editing.
+- `.ai/decisions/` - **why and when** it changed. Dated entries, newest first, one log per area. Read before changing an area, so a past decision is not undone by accident.
+
+Two modes:
+
+- **After a change** (automatic): runs at the end of any task that changed behavior or a convention, and whenever the Stop hook reminds. Small and fast. See below.
+- **Full sweep** (on request): infer conventions across the codebase. Steps 0-5.
+
+## After a change
+
+Run this before your final reply whenever the task changed code under `src/`, `scripts/`, `db/` or root config. The project Stop hook (`scripts/check-decisions.mjs`, wired in `.claude/settings.json`) reminds once per turn when code is newer than the last record.
+
+1. **Decide.** Does the change alter what users get (results, ranking, parsing, UI behavior), a setting or flag, a data/API contract, or how code here should be written? Then record it. A typo, formatting, rename with no behavior change, or a temporary test script is not worth recording: run `record-decision.mjs --none "<reason>"` and stop.
+2. **Group.** One entry per decision, not per file. Several files changed for one reason are one entry. Use the area glob of the main files (same globs as `.ai/rules`).
+3. **Record why and when.** The why is the cause in plain words: the tester feedback, bug, request or measurement, with the user's own reason when given. The what is the resulting behavior, not the code diff.
+
+   ```bash
+   node .agents/skills/infer-conventions/scripts/record-decision.mjs \
+     --glob 'src/lib/search/**' \
+     --title 'Main color ranks before a color detail' \
+     --why 'Testers flagged cards with a little brown as "not brown" (v2 phase 1 color feedback).' \
+     --what 'An asked color among a card'"'"'s first two color tags ranks first; shade words match color_shades.' \
+     --files src/lib/search/search-templates.ts --files src/lib/search/ranking.ts
+   ```
+
+4. **Update the rule** when how code should be written or how a part works now changed (a new place for settings, a ranking order, a flag every caller must respect). Use `record-rule.mjs` (below); it updates a section with the same title in place. Keep the rule timeless: no dates, no evidence.
+5. **Say it.** In the final reply, name the entries recorded in one line, so the user can review them before committing.
+
+Do not ask for confirmation in this mode: the user asked for the change, and the record only describes it. Rules from the full sweep still need confirmation.
 
 ## Ground rules
 
@@ -20,9 +49,9 @@ Document how this app actually works. Record durable, path-scoped rules in `.ai/
 - Never duplicate. Read `.ai/rules/index.md` and matching files before the sweep. A dimension already covered is done.
 - The rule states the convention only. No counts, ratios, file lists, or detection evidence. One or two imperative lines.
 - Do not record secrets, transient state, or obvious framework defaults.
-- Only run when explicitly asked.
+- Run the full sweep only when asked. The After a change mode runs on its own.
 
-## Process
+## Full sweep process
 
 ### Step 0 - Orient
 

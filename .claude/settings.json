@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/skills/infer-conventions/scripts/check-decisions.mjs\"",
+            "timeout": 15,
+            "statusMessage": "Checking for unrecorded decisions"
+          }
+        ]
+      }
+    ]
+  }
+}

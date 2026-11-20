@@ -7,6 +7,35 @@ export const RANKING = {
   /** One extra detail-hit point for matching a requested asset, ahead of editable milestone text. */
   assetPriorityWeight: 1,
   /**
+   * Styles on most templates ("elegant" on 4,181, "typography" on 5,710): matching one says little about the
+   * design, so they rank after the asked age like other words. Clear visual styles (watercolor, rustic,
+   * glitter…) rank with themes and elements, before the age.
+   */
+  /**
+   * A card's color tags list its most visible colors first: on cards whose name states a color, that color is in
+   * the first two tags 97% of the time. An asked color in these first tags is a main color, ranked before a card
+   * where it is only a detail (brown boots on a light blue card).
+   */
+  mainColorTags: 2,
+  /**
+   * An element's place in a card's element tags says how central it is, like colors: a sheep listed first is the
+   * card's subject; a sheep fifth after a tractor, pig, cow and chicken is a farm card with a sheep in it. An asked
+   * element in the first tags ranks first among cards that have it.
+   */
+  mainElementTags: 2,
+  /**
+   * Kinds of an occasion that are their own event: a plain "birthday" shows birthday, kids and first birthday
+   * cards before Quinceañera and Debut cards ("maroon birthday": a debutante ball is out of context). Asking for
+   * their age ("15th birthday") or the event itself keeps them first.
+   */
+  separateKinds: ['quinceanera', 'debut'],
+  /**
+   * Themes too generic to be what a card is about: "celebration" is printed on half the catalog (5,728 cards).
+   * They still count as design, but not as the asked subject, so they never outrank the asked color.
+   */
+  broadThemes: ['celebration'],
+  broadStyles: ['elegant', 'modern', 'typography', 'illustrated', 'photo', 'whimsical', 'festive', 'traditional', 'romantic'],
+  /**
    * Card also fits another occasion named in the query ("halloween" in "halloween wedding").
    * Larger than freshness + quality together (0.25), so fitting both beats being newer.
    */
@@ -53,6 +82,11 @@ export const RANKING = {
     afterOccasionTags: 4,
     /** No chips for fewer results than this: there is little to narrow. */
     minResults: 8,
+    /**
+     * When fewer than minResults cards match everything asked (three 65th cards), chips come from this many best
+     * results in ranking order (65th, then nearby ages), never from the whole occasion (kids birthdays for a 65th).
+     */
+    focusFallback: 40,
     /** A chip must keep at least this many results and this share of them… */
     minCount: 5,
     /** After a group is chosen ("Parties"), its events need fewer cards: 3 Kitty Party cards are a real choice. */

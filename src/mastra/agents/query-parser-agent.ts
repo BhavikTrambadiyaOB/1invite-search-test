@@ -13,7 +13,7 @@ Rules:
   query names the family but not the kind. null when the query does not name or clearly imply an event.
   "tie the knot" means wedding; "turning 40" means birthday with milestone 40; "dinner invitation" has no occasion.
 - occasionConfidence: 1 when the query clearly states it, about 0.6 when it is implied.
-- format is the kind of gathering (dinner, brunch…). Themes, styles and colors only when the query asks for them.
+- format is the kind of gathering (dinner, brunch…). Themes, styles a                                                                                                                                                                                                                                                            nd colors only when the query asks for them.
 - gender: girl or boy when the query says who it is for ("my son", "16 year girl", "for her"); otherwise null.
 - assets: specific objects asked for ("basketball", "butterfly", "lion"); a broad concept ("sports") is a theme.
 - moods: how the design should feel ("fun", "calm", "heartfelt"). language: only when the query names one

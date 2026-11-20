@@ -9,6 +9,7 @@ import { ResultsGrid } from '@/components/search/results-grid'
 import { SearchBox } from '@/components/search/search-box'
 import { SearchSession } from '@/components/search/search-session'
 import { Skeleton } from '@/components/ui/skeleton'
+import { withPriceFilterSetting } from '@/lib/search/features'
 import { searchTemplates } from '@/lib/search/search-templates'
 import type { SearchIntent } from '@/lib/search/types'
 import { activeFilterCount, NO_FILTERS, parseSearchParams, searchHref, type SearchState } from '@/lib/search/url'
@@ -40,9 +41,13 @@ async function SearchHeader({ searchParams }: { searchParams: Params }) {
 }
 
 async function SearchResults({ searchParams }: { searchParams: Params }) {
-  const state = parseSearchParams(await searchParams)
+  const parsed = parseSearchParams(await searchParams)
+  // An old link with ?price=free does not filter or count as a filter while price filtering is off.
+  const state = { ...parsed, filters: withPriceFilterSetting(parsed.filters) }
   const response = await searchTemplates({ query: state.query, filters: state.filters, page: state.page, ignore: state.ignore })
   const filterCount = activeFilterCount(state.filters)
+  // Nothing in the query was understood and it found nothing, so the results are the browse list.
+  const fallback = response.fallback === 'not_understood'
   const sidebar = <FilterSidebar state={state} response={response} />
 
   const grid = (
@@ -63,6 +68,8 @@ async function SearchResults({ searchParams }: { searchParams: Params }) {
           <MobileFilters activeCount={filterCount}>{sidebar}</MobileFilters>
         </div>
 
+        {fallback && <NotUnderstoodNotice query={state.query} />}
+
         {response.total === 0 ? (
           <EmptyState state={state} />
         ) : state.query ? (
@@ -72,7 +79,8 @@ async function SearchResults({ searchParams }: { searchParams: Params }) {
               filters: state.filters,
               page: response.page,
               intent: response.intent,
-              resultCount: response.total,
+              // A fallback list is not an answer to the query: log it as a zero-result search.
+              resultCount: fallback ? 0 : response.total,
               exactCount: response.exactTotal,
               matchCounts: response.matchCounts,
               topScore: response.results[0]?.debug.relevance ?? null,
@@ -108,6 +116,17 @@ async function SearchResults({ searchParams }: { searchParams: Params }) {
 
         {state.debug && <DebugPanel intent={response.intent} />}
       </section>
+    </div>
+  )
+}
+
+function NotUnderstoodNotice({ query }: { query: string }) {
+  return (
+    <div className="bg-muted/50 rounded-lg border px-4 py-3 text-sm" role="status">
+      <p className="font-medium">We couldn’t find anything for “{query.trim()}”.</p>
+      <p className="text-muted-foreground">
+        Here are our newest, best-rated templates instead. Try an occasion, a theme or a color, such as “pink dinosaur birthday”.
+      </p>
     </div>
   )
 }

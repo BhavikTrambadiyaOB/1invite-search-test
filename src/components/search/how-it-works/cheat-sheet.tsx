@@ -25,7 +25,7 @@ const LINES: { verb: string; color: string; text: string }[] = [
   {
     verb: 'Rank',
     color: 'var(--p3)',
-    text: 'The sorting ladder decides first: occasion closeness → asked details matched (elements count double) → closest milestone.',
+    text: 'The sorting ladder decides first: occasion closeness → design matched (asked theme or element first, elements count double, element listed first before a minor one, main color before a color detail) → closest milestone → other details.',
   },
   {
     verb: 'Rank',

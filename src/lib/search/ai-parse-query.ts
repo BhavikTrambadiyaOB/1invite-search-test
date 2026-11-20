@@ -33,6 +33,8 @@ export async function aiParseQuery(query: string, rules: SearchIntent): Promise<
     themes: known('theme', ai.themes),
     assets: known('asset', ai.assets),
     styles: known('style', ai.styles),
+    // Who the query is for is read by the rules only (adults 18–64, teens 13–19).
+    audience: rules.audience,
     unknownWords: [],
     source: 'ai',
   }

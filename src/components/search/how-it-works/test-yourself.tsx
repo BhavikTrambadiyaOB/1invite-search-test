@@ -50,8 +50,8 @@ const QUESTIONS: { step: string; color: string; q: string; a: string }[] = [
   {
     step: 'Rank',
     color: 'var(--p3)',
-    q: 'Why was our dinosaur template #2 for “pink dinosaur birthday”, not #1?',
-    a: 'It tied with One-a-Saurus on every rung of the ladder and their relevance counted as equal. One-a-Saurus has a slightly better quality score (0.88 vs 0.87).',
+    q: 'Why is our dinosaur template #1 for “pink dinosaur birthday”, ahead of One-a-Saurus, which scores a hair higher?',
+    a: 'Both have dinosaur and pink, but pink is one of our first two color tags (a main color) and only third on One-a-Saurus. The main color is part of the design rung, which comes before the score.',
   },
 ]
 

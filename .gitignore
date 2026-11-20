@@ -46,9 +46,14 @@ mastra.duckdb*
 next-env.d.ts
 
 .idea
-.claude
+.claude/*
+!.claude/settings.json
+!.claude/skills/
 
 .mastra
 
 # search regression snapshots
 search-snapshots/
+
+# per-machine marker for "nothing to record" (decision log)
+.ai/decisions/.last-review

@@ -3,7 +3,7 @@ import { REPORT_RESULT_LABELS } from './report-types'
 
 const REASON = 'Reason (Why fail, why partially, note for success is any)'
 
-function cell(value: unknown): string {
+export function csvCell(value: unknown): string {
   const text = value === null || value === undefined ? '' : String(value)
   // Quote every cell; a leading = + - @ is prefixed so Excel never runs it as a formula.
   const safe = /^[=+\-@]/.test(text) ? `'${text}` : text
@@ -22,6 +22,7 @@ const COLUMNS: [string, (row: ReportExportRow) => unknown][] = [
   ['V2 Result', (r) => (r.feedback?.currentResult ? REPORT_RESULT_LABELS[r.feedback.currentResult] : '')],
   ['Freshness issue', (r) => yesNo(r.feedback?.currentFreshnessIssue)],
   [REASON, (r) => r.feedback?.currentReason],
+  ['V2 Tags reason', (r) => r.feedback?.currentTagsReason],
 ]
 
 /**
@@ -29,7 +30,7 @@ const COLUMNS: [string, (row: ReportExportRow) => unknown][] = [
  * correctly), CRLF line ends and every cell quoted.
  */
 export function reportExportCsv(rows: ReportExportRow[]): string {
-  const lines = [COLUMNS.map(([name]) => cell(name)).join(',')]
-  for (const row of rows) lines.push(COLUMNS.map(([, get]) => cell(get(row))).join(','))
+  const lines = [COLUMNS.map(([name]) => csvCell(name)).join(',')]
+  for (const row of rows) lines.push(COLUMNS.map(([, get]) => csvCell(get(row))).join(','))
   return `﻿${lines.join('\r\n')}\r\n`
 }

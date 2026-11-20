@@ -1,6 +1,7 @@
 import { db } from '../db'
 import { isAiEnabled } from './ai-config'
 import { isConfidentParse, normalizeQuery, parseQuery } from './parse-query'
+import { ASSET_BY_ID } from './taxonomy'
 import { hasNonLatinLetters } from './text'
 import type { SearchIntent } from './types'
 import { getVocabulary, learnedTerms } from './vocabulary'
@@ -22,14 +23,14 @@ export async function resolveIntent(query: string): Promise<SearchIntent> {
   // Intents cached before moods, language and photo were added lack those fields.
   if (hit) {
     const intent = { ...hit, moods: hit.moods ?? [], alsoOccasions: hit.alsoOccasions ?? [], language: hit.language ?? null, hasPhoto: hit.hasPhoto ?? null } as SearchIntent
-    return { ...intent, language: askedLanguage(query, rules, intent.language) }
+    return { ...intent, ...kidsOccasion(rules, intent), assets: withRuleAssets(rules, intent), audience: rules.audience, language: askedLanguage(query, rules, intent.language) }
   }
 
   try {
     // Loaded only when needed, so search without AI never imports the AI stack.
     const { aiParseQuery } = await import('./ai-parse-query')
     const read = await aiParseQuery(query, rules)
-    const intent = { ...read, language: askedLanguage(query, rules, read.language) }
+    const intent = { ...read, ...kidsOccasion(rules, read), assets: withRuleAssets(rules, read), language: askedLanguage(query, rules, read.language) }
     await db.query(
       `insert into search_query_cache (normalized_query, intent, source) values ($1, $2, 'ai')
        on conflict (normalized_query) do update set intent = excluded.intent, created_at = now()`,
@@ -40,6 +41,31 @@ export async function resolveIntent(query: string): Promise<SearchIntent> {
     console.error('AI query parsing failed; using rules', error)
     return rules
   }
+}
+
+/**
+ * "shawn the sheep, party, kids": the rules read a kids word with "party" or "birthday" as a kids birthday. The AI
+ * may call it a themed party (or nothing), which lets Passover and Eid cards with a sheep in. A kids birthday
+ * wins over those broad readings; a specific event the AI found ("baby shower") stays.
+ */
+const BROAD_PARTY_OCCASIONS = new Set(['themed_party', 'birthday'])
+function kidsOccasion(rules: SearchIntent, ai: SearchIntent): Pick<SearchIntent, 'occasion' | 'occasionConfidence'> {
+  if (rules.occasion === 'kids_birthday' && (!ai.occasion || BROAD_PARTY_OCCASIONS.has(ai.occasion))) {
+    // As sure as the rules are: a sure kids birthday keeps other events out.
+    return { occasion: 'kids_birthday', occasionConfidence: Math.max(rules.occasionConfidence, ai.occasionConfidence ?? 0) }
+  }
+  return { occasion: ai.occasion, occasionConfidence: ai.occasionConfidence }
+}
+
+/**
+ * An element the rules found by name is kept when the AI left that very name as a plain word ("jump place" →
+ * trampoline), so the asked object ranks as the subject. A word that only contains a name stays with the AI:
+ * "gift card" is a kind of card, not a gift.
+ */
+function withRuleAssets(rules: SearchIntent, ai: SearchIntent): string[] {
+  const keywords = new Set((ai.keywords ?? []).map((k) => k.toLowerCase()))
+  const named = rules.assets.filter((id) => ASSET_BY_ID.get(id)?.phrases.some((phrase) => keywords.has(phrase)))
+  return [...new Set([...(ai.assets ?? []), ...named])]
 }
 
 /**

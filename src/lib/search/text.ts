@@ -53,7 +53,7 @@ const CARDINAL_WORDS: Record<string, number> = {
 
 const NAMED_MILESTONES: [RegExp, number][] = [
   [/\bsweet (16|sixteen)\b/, 16],
-  [/\bquinceanera\b|\bxv anos\b|\bquince anos\b/, 15],
+  [/\bquinceanera\b|\bxv anos\b|\bquince anos\b|\b15 anos\b/, 15],
   [/\bsilver (wedding )?anniversary\b/, 25],
   [/\bpearl (wedding )?anniversary\b/, 30],
   [/\bruby (wedding )?anniversary\b/, 40],
@@ -65,8 +65,29 @@ const ORDINAL_RE = new RegExp(`\\b(?:(\\d{1,3})(?:st|nd|rd|th)|(${Object.keys(OR
 const YEARS_RE = new RegExp(`\\b(\\d{1,3}|${Object.keys(CARDINAL_WORDS).join('|')})\\s*(?:year|yr)s?\\b`)
 const MILESTONE_CONTEXT = '(?:anniversary|anniversaries|birthday|bday|years?|aniversario|cumpleanos)'
 // "birthday 40", "anniversary 25": a number right after the event word, but not a date ("birthday 6 june").
+// A number above 31 cannot be a day, so "birthday 47 november 21" is a 47th birthday.
 const MONTHS = 'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre'
-const AFTER_EVENT_RE = new RegExp(`\\b(?:birthday|bday|anniversary|aniversario|cumpleanos)\\s+(\\d{1,3})\\b(?!\\s+(?:${MONTHS})\\b)(?!\\s*(?:am|pm|st|nd|rd|th)\\b)`)
+const AFTER_EVENT_RE = new RegExp(`\\b(?:birthday|bday|anniversary|aniversario|cumpleanos)\\s+(?:(\\d{1,3})\\b(?!\\s*(?:am|pm|st|nd|rd|th)\\b)(?!\\s+(?:${MONTHS})\\b)|(3[2-9]|[4-9]\\d|1\\d\\d)\\s+(?:${MONTHS})\\b)`)
+
+const DAY = '(?:[12]?\\d|3[01])(?:st|nd|rd|th)?'
+const DATE_AND_TIME_RE = new RegExp(
+  [
+    '\\b\\d{1,2}[:.]\\d{2}\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)?', // 5:00, 7.30 pm
+    '\\b\\d{1,2}\\s*(?:am|pm)\\b', // 4pm
+    `\\b${DAY}\\s+(?:de\\s+)?(?:${MONTHS})\\b`, // 21 november, 6 de junio
+    `\\b(?:${MONTHS})\\s+${DAY}\\b`, // november 21st
+    '\\b\\d{1,2}[/.-]\\d{1,2}(?:[/.-]\\d{2,4})?\\b', // 21/11, 21-11-2026
+  ].join('|'),
+  'gi',
+)
+
+/**
+ * The query without dates and times ("november 21", "5:00"), whose numbers must not match card text: "21"
+ * would find 21st birthdays and "00" every printed time. The age ("birthday 47") stays.
+ */
+export function withoutDatesAndTimes(query: string): string {
+  return query.replace(DATE_AND_TIME_RE, ' ').replace(/\s+/g, ' ').trim()
+}
 
 function toNumber(digits?: string, word?: string): number | null {
   if (digits) return Number(digits)
@@ -104,7 +125,7 @@ export function extractMilestone(normalized: string, needsContext = false): numb
   const years = normalized.match(YEARS_RE)
   if (years) return valid(toNumber(/\d/.test(years[1]) ? years[1] : undefined, years[1]))
   const after = normalized.match(AFTER_EVENT_RE)
-  if (after) return valid(Number(after[1]))
+  if (after) return valid(Number(after[1] ?? after[2]))
   return null
 }
 

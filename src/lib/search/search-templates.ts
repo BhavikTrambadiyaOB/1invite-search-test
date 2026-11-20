@@ -1,9 +1,10 @@
 import { db } from '../db'
 import { catalogExclusion } from './catalog-exclusion'
+import { isPriceFilterEnabled, withPriceFilterSetting } from './features'
 import { RANKING } from './ranking'
 import { isAiEnabled } from './ai-config'
 import { hasEmbeddingColumn, queryEmbedding } from './embeddings'
-import { isDateWord, normalizeQuery, stripQueryNoise } from './parse-query'
+import { isDateWord, normalizeQuery, stripQueryNoise, understoodAnything } from './parse-query'
 import { resolveIntent } from './resolve-intent'
 import { getVocabulary, labelFor, occasionAncestorsFrom, occasionFamilyFrom, phrasesFor, type VocabKind } from './vocabulary'
 import {
@@ -16,14 +17,27 @@ import {
   OCCASION_BY_ID,
   OCCASION_GROUP_BY_ID,
   CARD_MEANS_GREETING_GROUPS,
+  COLOR_SHADES,
+  DESIGN_GENDER_WORDS,
+  JOINT_CARD_TEXT,
+  JOINT_WORDS,
+  NICHE_DESIGNS,
+  NO_RSVP_QUERY,
+  RSVP_CARD_TEXT,
+  OCCASION_AGES,
+  QUERY_AUDIENCES,
   RESERVED_OCCASION_WORDS,
   occasionGroupId,
   type OccasionDef,
   type SimpleDef,
 } from './taxonomy'
 import { keywordConcepts } from './keyword-concepts'
+import { activeFilterCount } from './url'
+
+/** Gendered words that name the event, not the look ("quinceanera", "bride"): their gender stays a tie-break. */
+const OCCASION_GENDER_WORDS = new Set(['quinceanera', 'quince', 'bride', 'groom'])
 import { suggestTags } from './suggest-tags'
-import { compilePhrases, findMatches, normalizeText, ordinal, queryText } from './text'
+import { compilePhrases, findMatches, normalizeText, ordinal, queryText, withoutDatesAndTimes } from './text'
 import type { ActiveTag, FacetValue, QuickTag, SuggestedTag, SearchFilters, SearchIntent, SearchResponse, SearchResultItem } from './types'
 
 const FILTER_GROUPS = [
@@ -89,6 +103,7 @@ function withoutIgnored(intent: SearchIntent, ignore: string[]): SearchIntent {
     styles: intent.styles.filter((s) => !has(`style:${s}`)),
     moods: intent.moods.filter((m) => !has(`mood:${m}`)),
     language: has('language') ? null : intent.language,
+    audience: has('audience') ? null : intent.audience,
     hasPhoto: has('photo') ? null : intent.hasPhoto,
   }
 }
@@ -136,12 +151,43 @@ async function bestSimilarity(qvec: string): Promise<number | null> {
   return rows[0] ? Number(rows[0].best) : null
 }
 
-export async function searchTemplates({ query: rawQuery, filters = {}, page = 1, ignore = [] }: SearchInput): Promise<SearchResponse> {
+/**
+ * Search, with one safety net: a query that finds nothing, understood nothing ("asdfghjkl", "null", "OR 1=1 --")
+ * and has no filter picked shows the browse list (every template, newest and best first) instead of an empty page,
+ * so the user sees the search ran and can pick or rephrase. A query that was understood ("pizza kitty party") or a
+ * filtered search that finds nothing stays empty: that is a real answer.
+ */
+/** The sorting ladder (see .ai/rules): results, and the near results tag suggestions fall back to. */
+const RANK_ORDER = `selection_hits desc, tier desc, separate_kind asc, subject_hits desc, subject_tags desc, subject_lead desc,
+  design_hits desc, color_strength desc, price_match desc, milestone_state desc, milestone_distance asc, age_tie asc,
+  other_hits desc, niche asc, banded_score desc, score desc, created_at desc, template_id`
+
+export async function searchTemplates(input: SearchInput): Promise<SearchResponse> {
+  const response = await runSearch(input)
+  const typed = normalizeQuery(stripQueryNoise(input.query)) !== ''
+  const filtered = activeFilterCount(withPriceFilterSetting(input.filters ?? {})) > 0
+  if (response.total > 0 || !typed || filtered || understoodAnything(response.intent)) return response
+
+  const browse = await runSearch({ query: '', filters: input.filters, page: input.page, ignore: [] })
+  return {
+    ...browse,
+    query: response.query,
+    intent: response.intent,
+    exactTotal: 0,
+    matchCounts: { direct: 0, partial: 0, occasionOnly: 0 },
+    fallback: 'not_understood',
+  }
+}
+
+async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, ignore = [] }: SearchInput): Promise<SearchResponse> {
+  // With Free / PRO filtering off, neither the sidebar choice nor "free" in the query narrows the results.
+  const priceFilter = isPriceFilterEnabled()
+  const filters = withPriceFilterSetting(rawFilters)
   // A pasted chat prefix ("[27/05, 1:14 pm] name: ") is not part of what the person wants.
   const query = stripQueryNoise(rawQuery)
   const read = withoutIgnored(await resolveIntent(query), ignore)
   // Date parts ("10 juin", "june 7") never have to appear on a design.
-  const intent = { ...read, keywords: read.keywords.filter((k) => !k.split(' ').every((w) => isDateWord(w) || /^\d+(st|nd|rd|th)?$/.test(w))) }
+  const intent = { ...read, isFree: priceFilter ? read.isFree : null, keywords: read.keywords.filter((k) => !k.split(' ').every((w) => isDateWord(w) || /^\d+(st|nd|rd|th)?$/.test(w))) }
   const p = new Params()
 
   // Meaning-based matching, only when AI is on and template embeddings exist.
@@ -156,16 +202,18 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // Similarity scales differ per query ("boho" peaks at 0.47, "dinosaur birthday" at 0.73), so a template
   // is scored against the best match for this query, not a fixed number.
   const sem = RANKING.semantic
-  let meaning: { similarity: string; score: string; isMatch: string } | null = null
+  let meaning: { similarity: string; score: string; isMatch: string; vector: string } | null = null
   if (qvec) {
     const best = await bestSimilarity(qvec)
     if (best !== null && best >= sem.minBest) {
-      const similarity = `(1 - (embedding <=> ${p.add(qvec)}::vector))`
+      const vector = `${p.add(qvec)}::vector`
+      const similarity = `(1 - (embedding <=> ${vector}))`
       const floor = Math.max(sem.floor, best - sem.window)
       meaning = {
         similarity,
         score: `least(1, greatest(0, (coalesce(${similarity}, 0) - ${floor}) / ${best - floor}))`,
         isMatch: `coalesce(${similarity}, 0) >= ${Math.max(sem.minMatch, best - sem.matchWithin)}`,
+        vector,
       }
     }
   }
@@ -244,43 +292,102 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // rest, the occasion included, rank.
   const anchored = !!occDef || formatAnchor
   const details: string[] = []
+  // Design details (theme, element, color, style, photo) rank before the age: a printed age is text the user
+  // can change, the design is not. "red 9th birthday": red 9th cards, then red cards (nearest age first),
+  // then other 9th cards.
+  const designDetails: string[] = []
   const requestedChecks: string[] = []
-  const detail = (condition: string) => {
+  const detail = (condition: string, design = false) => {
     requestedChecks.push(condition)
-    if (anchored) details.push(condition)
-    else where.push(condition)
+    if (anchored) {
+      details.push(condition)
+      if (design) designDetails.push(condition)
+    } else where.push(condition)
   }
   if (occDef && weakOccasion) details.push(`(${inOccasions(p.add(occasionFamily(occDef.id)))} or search_vector @@ ${tsAny(p, occDef.phrases)})`)
 
   // Without an occasion, a different printed milestone is wrong ("50th" card for "5th").
+  let milestoneDetail: string | null = null
   if (intent.milestone) {
     const milestoneMatch = `(milestone = ${p.add(intent.milestone)})`
     requestedChecks.push(milestoneMatch)
-    if (anchored) details.push(milestoneMatch)
+    if (anchored) {
+      details.push(milestoneMatch)
+      milestoneDetail = milestoneMatch
+    }
     else where.push(`(milestone is null or milestone = ${p.add(intent.milestone)})`)
   }
 
   const themeOrAsset: string[] = []
   const assetChecks: string[] = []
+  // The same themes and elements, matched by the card's own tags only: a card labelled Dinosaurs is about
+  // dinosaurs; Toy Story mentions one (Rex) in its words. Tagged cards come first among equal matches.
+  const subjectTags: { column: 'themes' | 'assets'; id: string }[] = []
+  const broadThemeChecks: string[] = []
   for (const theme of intent.themes) {
-    themeOrAsset.push(`(themes @> array[${p.add(theme)}]::text[] or search_vector @@ ${tsAny(p, phrasesFor(vocab, 'theme', theme))})`)
+    const condition = `(themes @> array[${p.add(theme)}]::text[] or search_vector @@ ${tsAny(p, phrasesFor(vocab, 'theme', theme))})`
+    themeOrAsset.push(condition)
+    if ((RANKING.broadThemes as readonly string[]).includes(theme)) broadThemeChecks.push(condition)
+    else subjectTags.push({ column: 'themes', id: theme })
   }
   // A specific object ("basketball", "sushi"): in the design or named in the template.
   for (const asset of intent.assets) {
     const condition = `(assets @> array[${p.add(asset)}]::text[] or search_vector @@ ${tsAny(p, phrasesFor(vocab, 'asset', asset))})`
     themeOrAsset.push(condition)
     assetChecks.push(condition)
+    subjectTags.push({ column: 'assets', id: asset })
   }
-  for (const condition of themeOrAsset) detail(condition)
+  for (const condition of themeOrAsset) detail(condition, true)
   if (weakOccasion) where.push(`(${themeOrAsset.join(' or ')})`)
   // Gender: drop templates made for the other gender; keep gender-neutral ones (they can be edited).
   if (intent.gender === 'girl' || intent.gender === 'boy') {
     where.push(`coalesce(gender, 'neutral') <> ${p.add(intent.gender === 'girl' ? 'boy' : 'girl')}`)
-    requestedChecks.push(`coalesce(gender = ${p.add(intent.gender)}, false)`)
+    const genderMatch = `coalesce(gender = ${p.add(intent.gender)}, false)`
+    requestedChecks.push(genderMatch)
+    // Among cards equally close in age, ones made for the asked gender come first ("girl birthday": girl before
+    // neutral). When a design word says the gender ("cowgirl", "princess", "ballerina"), the gender is part of the
+    // look: cowgirl cards come before a neutral cowboy card, even one closer in age.
+    const queryWords = ` ${normalizeQuery(query)} `
+    const fromDesignWord = (GENDER_BY_ID.get(intent.gender)?.phrases ?? []).some(
+      (w) => DESIGN_GENDER_WORDS.has(w) && !OCCASION_GENDER_WORDS.has(w) && queryWords.includes(` ${w} `),
+    )
+    if (anchored) {
+      details.push(genderMatch)
+      if (fromDesignWord) designDetails.push(genderMatch)
+    }
   }
   for (const color of intent.colors) {
-    detail(`(colors @> array[${p.add(color)}]::text[] or search_vector @@ ${tsAny(p, defsPhrases(COLOR_BY_ID.get(color)))})`)
+    detail(`(colors @> array[${p.add(color)}]::text[] or search_vector @@ ${tsAny(p, defsPhrases(COLOR_BY_ID.get(color)))})`, true)
   }
+  // How strongly a card shows the asked colors: points per asked color among its first color tags (the most
+  // visible ones, the first counting most), one per asked shade ("fuchsia", "sky blue") in its shades. Only orders cards; never filters.
+  const paddedWords = ` ${normalizeQuery(query)} `
+  const askedColors = [...new Set([...intent.colors, ...(filters.colors ?? [])])].filter((c) => c !== 'multicolor')
+  const askedShades = COLOR_SHADES.filter((s) => s.words.some((w) => paddedWords.includes(` ${w} `)))
+  const colorStrength = [
+    // First tag 2 points, second 1: an all-black card before a red card with some black.
+    ...askedColors.map((c) => `greatest(${RANKING.mainColorTags} + 1 - coalesce(array_position(colors, ${p.add(c)}), 2147483647), 0)`),
+    ...askedShades.map((s) => `coalesce(array_to_string(color_shades, '|') ~* ${p.add(s.shades)}, false)::int`),
+  ].join(' + ') || '0'
+  // "adult birthday" (18–64), "teenager birthday" (13–19): a printed age decides when the card has one, so a
+  // 90th is not adult; otherwise the card's audience tag does.
+  const audienceDef = QUERY_AUDIENCES.find((a) => a.id === intent.audience)
+  if (audienceDef) {
+    const [youngest, oldest] = audienceDef.ages
+    detail(
+      `coalesce(milestone between ${p.add(youngest)} and ${p.add(oldest)}, audience = ${p.add(audienceDef.id)}, false)`,
+      true,
+    )
+  }
+  // "joint kids party": cards for two or more people, by their words ("triple", "twins") or names joined by "&".
+  const queryWordSet = new Set(normalizeQuery(query).split(' '))
+  const asksJoint = JOINT_WORDS.some((w) => queryWordSet.has(w))
+  if (asksJoint) detail(`(search_vector @@ ${tsAny(p, JOINT_WORDS)} or card_text ~* ${p.add(JOINT_CARD_TEXT)})`, true)
+  // "birthday without rsvp": cards whose printed text has no reply line first. The words "without" and "rsvp" are
+  // then not matched as text, or cards that print RSVP would rank first.
+  const asksNoRsvp = NO_RSVP_QUERY.test(normalizeQuery(query))
+  const isRsvpWord = (w: string) => asksNoRsvp && (/rsvp/.test(w) || ['without', 'no', 'non', 'skip'].includes(w))
+  if (asksNoRsvp) detail(`(coalesce(card_text, '') <> '' and card_text !~* ${p.add(RSVP_CARD_TEXT)})`)
   if (intent.format) {
     const condition = `(format = ${p.add(intent.format)} or search_vector @@ ${tsAny(p, defsPhrases(FORMAT_BY_ID.get(intent.format)))})`
     if (formatAnchor) {
@@ -293,28 +400,41 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // cards (an invitation is easy to reword), instead of only the few tagged as greetings.
   // "photo invitation": a card with a photo. "spanish invitation": text in that language.
   if (intent.docType) detail(`(doc_type = ${p.add(intent.docType)})`)
-  if (intent.hasPhoto) detail('has_photo')
+  if (intent.hasPhoto) detail('has_photo', true)
   if (intent.language) detail(`(languages @> array[${p.add(intent.language)}]::text[])`)
-  for (const style of intent.styles) requestedChecks.push(`(styles @> array[${p.add(style)}]::text[])`)
+  // Styles never filter (a style word is often loose: "elegant"). Clear visual styles rank with the design
+  // details; broad ones (on most templates) rank after the age.
+  for (const style of intent.styles) {
+    const condition = `(styles @> array[${p.add(style)}]::text[])`
+    requestedChecks.push(condition)
+    if (anchored) {
+      details.push(condition)
+      if (!(RANKING.broadStyles as readonly string[]).includes(style)) designDetails.push(condition)
+    }
+  }
   for (const mood of intent.moods) requestedChecks.push(`(moods @> array[${p.add(mood)}]::text[])`)
-  if (intent.isFree !== null && !filters.price) where.push(`is_free = ${p.add(intent.isFree)}`)
+  // "free" (or "pro") typed in the query is a preference, not a filter: matching cards rank first, then the
+  // others ("aqiqa invitation free": the free aqiqa cards, then the PRO ones). Only the sidebar Free / PRO option
+  // hides the other kind.
+  const priceMatch = intent.isFree !== null && !filters.price ? `(is_free = ${p.add(intent.isFree)})::int` : '0'
 
   const structured =
     !!occDef || intent.themes.length > 0 || intent.assets.length > 0 || intent.colors.length > 0 || intent.styles.length > 0 ||
     !!intent.format || !!intent.docType || !!intent.gender || intent.moods.length > 0 ||
     !!intent.language || !!intent.hasPhoto
   // Words in other scripts count as typed words too, so "عيد مبارك" is never read as browsing everything.
-  const allWords = queryText(query).split(' ')
-  const queryWords = allWords.filter((w) => w && !['invitation', 'invitations', 'template', 'card', 'invite'].includes(w) && !isDateWord(w))
+  // Dates and times ("november 21", "5:00") are left out: their numbers would match 21st birthdays and printed times.
+  const allWords = queryText(withoutDatesAndTimes(query)).split(' ')
+  const queryWords = allWords.filter((w) => w && !['invitation', 'invitations', 'template', 'card', 'invite'].includes(w) && !isDateWord(w) && !isRsvpWord(w))
   const textQuery = orTsQuery(queryWords)
   // When nothing in the query was understood (AI may return an empty reading for "zxqv blorf"),
   // the typed words themselves must match, so search never falls back to every template.
-  const keywords = structured || intent.keywords.length > 0 ? intent.keywords : queryWords
+  const keywords = (structured || intent.keywords.length > 0 ? intent.keywords : queryWords).filter((k) => !k.split(' ').some(isRsvpWord))
   const tsq = textQuery ? `to_tsquery('english', search_unaccent(${p.add(textQuery)}))` : null
 
   // Wording the vocabulary has no term for ("timeline", "barn") still says what is wanted, with synonyms
   // (timeline = program = itinerary…). With an occasion, cards that have it rank first, like any detail.
-  const concepts = keywordConcepts(normalizeQuery(query), keywords)
+  const concepts = keywordConcepts(normalizeQuery(query), asksJoint ? keywords.filter((k) => !JOINT_WORDS.includes(k)) : keywords)
   if (anchored) {
     for (const forms of concepts) {
       const condition = `search_vector @@ ${tsAny(p, forms)}`
@@ -393,7 +513,9 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
 
   let relevance: string
   if (!textQuery && !structured) {
-    relevance = '1' // Browsing without a query.
+    // Browsing, or nothing left to score ("no rsvp" once the RSVP words are set aside). The query vector is still a
+    // parameter, so it is referenced once (a constant check) to give it a type.
+    relevance = meaning ? `(case when ${meaning.vector} is null then 0 else 1 end)` : '1'
   } else if (keywordOnly) {
     const kw = p.add(keywords.join(' '))
     const w = meaning ? RANKING.keywordOnlyWithMeaning : { ...RANKING.keywordOnly, meaning: 0 }
@@ -408,32 +530,78 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
   // Relevance tiers, ranked before the score: for "5th Wedding Anniversary", first 5th wedding anniversary
   // cards, then other wedding anniversary cards, then general anniversary cards (5th ones first).
   // Within a tier, the score (meaning, freshness, quality…) decides.
-  // 1. how close the occasion is (asked one, then its parent), 2. how many asked details the card has
-  // (5th, dinosaur, pink, "halloween" in "halloween wedding"), 3. for an asked age: exact, nearby, no age, then distant.
+  // 1. how close the occasion is (asked one, then its parent), 2. how many asked design details the card has
+  // (dinosaur, pink, floral, "halloween" in "halloween wedding"), 3. for an asked age: exact, then other printed
+  // ages nearest first, then no age, 4. other asked details (card type, language, other words).
+  // An occasion with its own age ("debut" is an 18th, "quinceañera" a 15th) and no age asked: see milestoneState.
+  const impliedAge = !intent.milestone && occDef ? OCCASION_AGES[occDef.id] : undefined
+  // Built only when used: an unused parameter has no type and fails the query (weak occasions have no tier).
+  const inParent = () => (ancestors.length ? `occasion = any(${p.add(ancestors)}::text[])` : 'false')
+  // With an implied age, a card of the occasion printed with another age (a 21st debut) is a weaker match than a
+  // parent-occasion card with that age (an 18th birthday): debut cards (18th or no age) → 18th birthdays →
+  // 21st debut → other birthdays.
   const tier = occDef && !weakOccasion
-    ? `(case when ${inOccasions(p.add(occasionFamily(occDef.id)))} then 2
-             when ${ancestors.length ? `occasion = any(${p.add(ancestors)}::text[])` : 'false'} then 1 else 0 end)`
+    ? impliedAge
+      ? `(case when ${inOccasions(p.add(occasionFamily(occDef.id)))} then
+                 (case when milestone is null or milestone = ${p.add(impliedAge)} then 2 else 1 end)
+               when ${inParent()} then (case when milestone = ${p.add(impliedAge)} then 1 else 0 end) else -1 end)`
+      : `(case when ${inOccasions(p.add(occasionFamily(occDef.id)))} then 2 when ${inParent()} then 1 else 0 end)`
     : '0'
+  // "birthday": Quinceañera and Debut cards after the other birthday cards (see RANKING.separateKinds), unless
+  // the asked age is theirs ("15th birthday").
+  const separateKinds = occDef && !weakOccasion
+    ? RANKING.separateKinds.filter((k) =>
+        k !== occDef.id && occasionFamily(occDef.id).includes(k) && OCCASION_AGES[k] !== intent.milestone)
+    : []
+  const separateKind = separateKinds.length ? `(occasion = any(${p.add(separateKinds)}::text[]))::int` : '0'
   const detailChecks = [...details]
+  const designChecks = [...designDetails]
   for (const occasion of intent.alsoOccasions) {
+    // "halloween" in "halloween 30th birthday" is part of the design, like a theme.
     const condition = inOccasions(p.add(occasionFamily(occasion)))
     detailChecks.push(condition)
+    designChecks.push(condition)
     requestedChecks.push(condition)
   }
-  const detailHits = detailChecks.length ? detailChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ') : '0'
-  const assetHits = assetChecks.length ? assetChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ') : '0'
+  // Everything else asked (card type, language, format, other words): ranks after the age.
+  const otherChecks = detailChecks.filter((c) => c !== milestoneDetail && !designChecks.includes(c))
+  const hits = (checks: string[]) => (checks.length ? checks.map((c) => `coalesce(${c}, false)::int`).join(' + ') : '0')
+  const detailHits = hits(detailChecks)
+  const assetHits = hits(assetChecks.filter((c) => designChecks.includes(c)))
+  // What the card is about (asked themes and elements) ranks before the rest of the design, so a weaker detail
+  // ("colorful", on thousands of cards) can never stand in for the asked subject: for "colorful dinosaur 3rd
+  // birthday", every dinosaur card (any age) comes before a colorful 3rd birthday without a dinosaur.
+  // Elements count extra: the object itself ("dinosaur") matters most.
+  const subjectChecks = themeOrAsset.filter((c) => designChecks.includes(c) && !broadThemeChecks.includes(c))
+  const subjectHits = `(${hits(subjectChecks)} + (${assetHits}) * ${RANKING.assetPriorityWeight})`
+  // Parameters are added only when used: an unused one has no type and fails the query.
+  const subjectTagHits = subjectChecks.length
+    ? hits(subjectTags.map((t) => `(${t.column} @> array[${p.add(t.id)}]::text[])`))
+    : '0'
+  // Among cards with the asked element, the ones listing it first ("sheep" card before a farm card with a sheep).
+  const askedElements = subjectChecks.length ? intent.assets : []
+  const subjectLead = askedElements.length
+    ? askedElements.map((a) => `coalesce(array_position(assets, ${p.add(a)}) <= ${RANKING.mainElementTags}, false)::int`).join(' + ')
+    : '0'
+  const designHits = hits(designChecks.filter((c) => !subjectChecks.includes(c)))
+  const otherHits = hits(otherChecks)
   const requestedHits = requestedChecks.length
     ? requestedChecks.map((c) => `coalesce(${c}, false)::int`).join(' + ')
     : '0'
   const sameOccasion = occDef ? `coalesce(${inOccasions(p.add(occasionFamily(occDef.id)))}, false)` : 'false'
   const directOccasionCheck = occDef ? 'same_occasion' : 'true'
   // Asked age first, then other printed ages closest to it (55th before 20th for "50th"), then cards with no age.
-  const milestoneState = intent.milestone
-    ? `(case when milestone = ${p.add(intent.milestone)} then 2 when milestone is not null then 1 else 0 end)`
+  // An implied age works the same ("free debutante": 18th, then 17th/19th/21st… birthdays, then no age); the
+  // occasion's own cards with no age already come first by the tier.
+  const age = intent.milestone ?? impliedAge
+  const milestoneState = age
+    ? `(case when milestone = ${p.add(age)} then 2 when milestone is not null then 1 else 0 end)`
     : '0'
-  const milestoneDistance = intent.milestone
-    ? `(case when milestone is null then 2147483647 else abs(milestone - ${p.add(intent.milestone)}) end)`
+  const milestoneDistance = age
+    ? `(case when milestone is null then 2147483647 else abs(milestone - ${p.add(age)}) end)`
     : '0'
+  // Ages equally far keep together, younger first: 80th cards, then 100th cards for a "90th".
+  const ageTie = age ? 'coalesce(milestone, 2147483647)' : '0'
 
   const freshness = `exp(-ln(2) * extract(epoch from (now() - created_at)) / 86400 / ${RANKING.freshnessHalfLifeDays})`
   const milestoneBonus = intent.milestone ? `(case when milestone = ${p.add(intent.milestone)} then ${RANKING.milestoneBonus} else 0 end)` : '0'
@@ -443,11 +611,25 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     : '0'
   // "thanksgiving card": for holidays and greetings, a card is usually a greeting, so greetings come first.
   // Only a preference: invitations still follow, and an asked color or theme still ranks higher.
-  const saysCard = normalizeText(query).split(' ').some((w) => w === 'card' || w === 'cards')
+  const queryNormal = normalizeText(query).split(' ')
+  const saysCard = queryNormal.some((w) => w === 'card' || w === 'cards')
+  // "birthday invitation card" asks for an invitation.
+  const saysInvitation = queryNormal.some((w) => ['invitation', 'invitations', 'invite', 'invites', 'invitacion', 'invitaciones'].includes(w))
   const greetingBonus =
-    saysCard && !intent.docType && occDef && (CARD_MEANS_GREETING_GROUPS as readonly string[]).includes(occDef.group)
+    saysCard && !saysInvitation && !intent.docType && occDef && (CARD_MEANS_GREETING_GROUPS as readonly string[]).includes(occDef.group)
       ? `(case when doc_type = 'greeting' then ${RANKING.cardGreetingBonus} else 0 end)`
       : '0'
+  // Zodiac cards fit any birthday by meaning and are new; unless the query or a sidebar pick asks for them, they
+  // come after the other cards that match equally well.
+  const paddedQuery = ` ${normalizeQuery(query)} `
+  const picked = [...(filters.themes ?? []), ...(filters.assets ?? [])]
+  const unaskedNiche = NICHE_DESIGNS.filter(
+    (n) => !n.words.some((w) => paddedQuery.includes(` ${w} `)) && !n.tags.some((t) => picked.includes(t)) &&
+      !intent.themes.some((t) => n.tags.includes(t)) && !intent.assets.some((a) => n.tags.includes(a)),
+  )
+  const niche = unaskedNiche.length
+    ? `(${unaskedNiche.map((n) => `(themes && ${p.add(n.tags)}::text[] or assets && ${p.add(n.tags)}::text[] or name ~* ${p.add(n.namePattern)})`).join(' or ')})::int`
+    : '0'
   const { weights } = RANKING
 
   const pageSize = RANKING.pageSize
@@ -460,9 +642,10 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
              ${relevance} as relevance, ${freshness} as freshness, quality_score as quality,
              ${milestoneBonus} + ${alsoBonus} + ${greetingBonus} as milestone_bonus, ${textRank} as text_rank, ${tier} as tier,
              ${detailHits} as detail_hits,
-             (${detailHits} + (${assetHits}) * ${RANKING.assetPriorityWeight}) as priority_detail_hits,
+             ${separateKind} as separate_kind, ${subjectHits} as subject_hits, ${subjectTagHits} as subject_tags, ${subjectLead} as subject_lead,
+             ${designHits} as design_hits, ${colorStrength} as color_strength, ${priceMatch} as price_match, ${otherHits} as other_hits, ${niche} as niche,
              ${requestedHits} as requested_hits, ${sameOccasion} as same_occasion,
-             ${milestoneState} as milestone_state, ${milestoneDistance} as milestone_distance,
+             ${milestoneState} as milestone_state, ${milestoneDistance} as milestone_distance, ${ageTie} as age_tie,
              ${selectionHits} as selection_hits, ${occasionWhere ? `coalesce(${occasionWhere}, false)` : 'true'} as on_occasion,
              ${FILTER_GROUPS.map((g) => `${filterFlags[g]} as f_${g}`).join(', ')}
         from template_search t
@@ -478,7 +661,7 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     final as (
       select *, least(${weights.relevance} * relevance + milestone_bonus,
                       max(${weights.relevance} * relevance + milestone_bonus)
-                        over (partition by selection_hits, tier, detail_hits, milestone_state) - ${RANKING.relevanceBand})
+                        over (partition by selection_hits, tier, separate_kind, subject_hits, subject_tags, subject_lead, design_hits, color_strength, price_match, milestone_state, other_hits) - ${RANKING.relevanceBand})
                 + ${weights.freshness} * freshness + ${weights.quality} * quality as banded_score
         from scored where ${passes()}
     ),
@@ -492,7 +675,9 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
     focus as (
       select * from top_rows where (select count(*) from top_rows) >= ${RANKING.suggestions.minResults}
       union all
-      select f.* from base f, best b where f.tier = b.mt and (select count(*) from top_rows) < ${RANKING.suggestions.minResults}
+      select * from (
+        select f.* from base f, best b where f.tier = b.mt and (select count(*) from top_rows) < ${RANKING.suggestions.minResults}
+         order by ${RANK_ORDER} limit ${RANKING.suggestions.focusFallback}) near
     )
     select
       (select count(*) from final)::int as total,
@@ -522,8 +707,7 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
           group by grp order by c desc) x) as groups,
       (select coalesce(json_agg(r), '[]') from (
          select * from final
-           order by selection_hits desc, tier desc, priority_detail_hits desc, detail_hits desc,
-                    milestone_state desc, milestone_distance asc, banded_score desc, score desc, created_at desc, template_id
+           order by ${RANK_ORDER}
           limit ${pageSize} offset ${offset}) r) as results,
       (select coalesce(json_agg(json_build_object('id', occasion, 'count', c, 'format', f, 'fit', fit)), '[]') from (
          select o as occasion, count(*)::int c, mode() within group (order by format) f, avg(relevance)::real fit
@@ -646,10 +830,13 @@ export async function searchTemplates({ query: rawQuery, filters = {}, page = 1,
       { id: 'without', label: 'Without photo', count: photoCounts.without },
     ],
     milestones: (row.milestones as { id: string; count: number }[]).map((m) => ({ id: m.id, label: ordinal(Number(m.id)), count: m.count })),
-    price: [
-      { id: 'free', label: 'Free', count: priceCounts.free },
-      { id: 'premium', label: 'PRO', count: priceCounts.premium },
-    ],
+    // No Free / PRO option in the sidebar when price filtering is off.
+    price: priceFilter
+      ? [
+          { id: 'free', label: 'Free', count: priceCounts.free },
+          { id: 'premium', label: 'PRO', count: priceCounts.premium },
+        ]
+      : [],
     orientation: [
       { id: 'portrait', label: 'Portrait', count: orientationCounts.portrait },
       { id: 'landscape', label: 'Landscape', count: orientationCounts.landscape },

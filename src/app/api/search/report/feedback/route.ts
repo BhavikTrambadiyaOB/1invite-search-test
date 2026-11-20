@@ -12,9 +12,11 @@ const bodySchema = z.object({
   currentResult: resultSchema,
   currentFreshnessIssue: z.boolean(),
   currentReason: z.string().max(2000).default(''),
+  // Optional: left empty when the suggested tags are fine.
+  currentTagsReason: z.string().max(2000).nullish(),
 })
 
-/** Saves the six search-report answers: result, freshness issue and reason for each side. */
+/** Saves the search-report answers: result, freshness issue and reason for each side, plus an optional tags note for the current version. */
 export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid report feedback' }, { status: 400 })

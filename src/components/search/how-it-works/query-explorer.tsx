@@ -16,7 +16,7 @@ type Example = {
   why: string
 }
 
-/** Real searches captured on 3 Nov 2026 with the meaning match off (rules and labels only). */
+/** Real searches captured on 3 Nov 2026 and rechecked on 17 Nov, with the meaning match off (rules and labels only). */
 const EXAMPLES: Example[] = [
   {
     q: '5th wedding anniversary',
@@ -57,12 +57,12 @@ const EXAMPLES: Example[] = [
       ['Color', 'pink'],
     ],
     top: [
-      ['One-a-Saurus Dinosaur Birthday', '1'],
       ['Dinosaur and Bow-Themed Third Birthday Party', '3'],
       ['Unicorns and Dinosaurs Themed Birthday', '7'],
       ['Jump Into 12 Kids Birthday', '12'],
       ['Princess Dinosaur Birthday Party', '4'],
       ['Dinosaur Theme Girl Birthday Party', '1'],
+      ['Dinosaur Tea Party Birthday', '3'],
     ],
     tags: [
       ['Girl', 7],
@@ -73,7 +73,7 @@ const EXAMPLES: Example[] = [
       ['Purple', 5],
       ['Sun', 5],
     ],
-    why: 'All birthday templates stay (2,988), but the 16 with both a dinosaur and pink come first. Chips are counted from those 16 best matches.',
+    why: 'All birthday templates stay (2,988), but the 16 with both a dinosaur and pink come first, mostly-pink ones before those with a little pink. Chips are counted from those 16 best matches.',
   },
   {
     q: 'pizza',
@@ -102,7 +102,7 @@ const EXAMPLES: Example[] = [
   {
     q: 'girl 1st birthday',
     total: 1099,
-    exact: 374,
+    exact: 142,
     anchor: true,
     read: [
       ['Occasion', 'First Birthday', 'sure'],
@@ -118,13 +118,13 @@ const EXAMPLES: Example[] = [
       ['Once Upon a Time 1st Birthday', '1'],
     ],
     tags: [
-      ['Woodland', 36],
-      ['Safari & Jungle', 27],
-      ['Balloon', 71],
-      ['Bear', 26],
-      ['Farm & Barnyard', 19],
-      ['Pastel', 63],
-      ['With photo', 61],
+      ['Princess & Royal', 20],
+      ['Fairy & Magic', 13],
+      ['Bow', 33],
+      ['Butterfly', 17],
+      ['Crown', 16],
+      ['Garden & Nature', 12],
+      ['Whimsical & Cute', 45],
     ],
     why: '“birthday” + milestone 1 becomes the occasion First Birthday. Boy templates are removed, neutral ones stay. Gender chips are skipped because a gender was asked.',
   },

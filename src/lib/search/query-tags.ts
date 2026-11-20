@@ -1,3 +1,4 @@
+import { isPriceFilterEnabled } from './features'
 import { parseQuery } from './parse-query'
 import { ordinal } from './text'
 import {
@@ -7,6 +8,7 @@ import {
   GENDER_BY_ID,
   LANGUAGE_BY_ID,
   MOOD_BY_ID,
+  QUERY_AUDIENCES,
 } from './taxonomy'
 import { parseSearchParams, searchHref } from './url'
 import type { SearchFilters, SearchIntent } from './types'
@@ -42,10 +44,12 @@ export function queryTagsFromIntent(intent: SearchIntent, vocab: Vocabulary): Qu
   for (const style of intent.styles) add('styles', style, labelFor(vocab, 'style', style))
   for (const mood of intent.moods) add('moods', mood, MOOD_BY_ID.get(mood)?.label ?? mood)
   if (intent.language) add('languages', intent.language, LANGUAGE_BY_ID.get(intent.language)?.label ?? intent.language)
+  if (intent.audience) add('audiences', intent.audience, QUERY_AUDIENCES.find((a) => a.id === intent.audience)?.label ?? intent.audience)
   if (intent.hasPhoto) add('photo', 'with', 'With photo')
   if (intent.docType) add('docTypes', intent.docType, DOC_TYPE_BY_ID.get(intent.docType)?.label ?? intent.docType)
-  if (intent.isFree === true) add('price', 'free', 'Free')
-  if (intent.isFree === false) add('price', 'premium', 'PRO')
+  // "free" / "pro" are only tags while Free / PRO filtering is on.
+  if (isPriceFilterEnabled() && intent.isFree === true) add('price', 'free', 'Free')
+  if (isPriceFilterEnabled() && intent.isFree === false) add('price', 'premium', 'PRO')
 
   return tags
 }

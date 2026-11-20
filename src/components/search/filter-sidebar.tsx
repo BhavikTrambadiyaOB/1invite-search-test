@@ -190,21 +190,23 @@ export function FilterSidebar({ state, response }: { state: SearchState; respons
           </Section>
         )}
 
-        <ToggleRow title="Price">
-          {facets.price.map((o) => (
-            <ToggleOption
-              key={o.id}
-              label={o.label}
-              count={filters.price && filters.price !== o.id ? undefined : o.count}
-              active={filters.price === o.id}
-              href={searchHref(state, {
-                filters: {
-                  price: filters.price === o.id ? undefined : (o.id as 'free' | 'premium'),
-                },
-              })}
-            />
-          ))}
-        </ToggleRow>
+        {facets.price.length > 0 && (
+          <ToggleRow title="Price">
+            {facets.price.map((o) => (
+              <ToggleOption
+                key={o.id}
+                label={o.label}
+                count={filters.price && filters.price !== o.id ? undefined : o.count}
+                active={filters.price === o.id}
+                href={searchHref(state, {
+                  filters: {
+                    price: filters.price === o.id ? undefined : (o.id as 'free' | 'premium'),
+                  },
+                })}
+              />
+            ))}
+          </ToggleRow>
+        )}
 
         {facets.docType.length > 0 && (
           <Section id="type" title="Type" selected={selected.type}>

@@ -880,7 +880,10 @@ export function Explainer() {
               <ListChecks className={c('i')} aria-hidden />
             </span>
             <h4>Rule reader</h4>
-            <p>Finds occasion, milestone, gender, themes, elements, colors, format, type, language, photo, free.</p>
+            <p>
+              Finds occasion, milestone, gender, who it is for (adult, teen), themes, elements, colors and shades,
+              format, type, language, photo, free.
+            </p>
             <span className={c('badge b-free')}>Free</span>
           </div>
           <div className={c('step')}>
@@ -943,6 +946,27 @@ export function Explainer() {
               <li>
                 The AI often guesses the language a query is <i>written</i> in (“invitación de hombre” → Spanish). We
                 keep a language only when the query names it (“in Spanish”) or uses another script.
+              </li>
+              <li>
+                An age with no event named is a birthday: “cowgirl invitations for 13 year olds”, “turning 5”.
+              </li>
+              <li>
+                “kids”, “child” or “toddler” with “birthday” or “party” reads as Kids Birthday: “joint kids party”.
+                This wins over an AI reading of a general party, so “shawn the sheep, party, kids” never shows Eid
+                or Passover cards with a sheep. “toddler” also asks for ages 1–3.
+              </li>
+              <li>
+                “save the date” next to another occasion is that occasion’s save-the-date: “save the date kid birthday”
+                finds kids birthday save-the-dates, not wedding ones. “reminder” also means a save-the-date.
+              </li>
+              <li>
+                “adult” and “teen” say who it is for. “joint”, “twins”, “triple” ask for a card for two or more people.
+                Shade words (“fuchsia”, “sky blue”, “mauve”) are kept to match the shade, and common misspellings
+                (“fucsia”, “rosegold”) are known.
+              </li>
+              <li>
+                “free” (or “pro”) in the search never hides templates. With the price setting on, matching cards come
+                first among equal design matches, then the others. With it off (today), it changes nothing.
               </li>
               <li>If the AI fails, search falls back to the rule reading. Search never stops because of AI.</li>
             </ul>
@@ -1064,8 +1088,12 @@ export function Explainer() {
               <CircleDollarSign className={c('i')} aria-hidden />
             </span>
             <div className={c('c')}>
-              <h4>“free” in the search, or a sidebar filter</h4>
-              <p>Only free templates, or only what the user picked.</p>
+              <h4>A sidebar filter</h4>
+              <p>
+                Only what the user picked. The Free / PRO filter exists only when the price setting is on
+                (SEARCH_PRICE_FILTER_ENABLED, off today). “free” typed in the search is not a filter: it ranks free
+                cards first and still shows the PRO ones after them.
+              </p>
             </div>
           </div>
         </div>
@@ -1094,6 +1122,23 @@ export function Explainer() {
                 <p>
                   Occasions the AI created match by label or wording, never as a strict filter, so a rare one (1
                   template) can’t hide every other match.
+                </p>
+              </div>
+              <div className={c('card')}>
+                <h4>“Without RSVP”</h4>
+                <p>
+                  “birthday without rsvp”, “no rsvp”: cards whose printed text has no reply line (“RSVP”, “Reply by”,
+                  “Regrets only”) come first. The words “without” and “rsvp” are not matched as text, or cards that print
+                  RSVP would win. Every invitation can still collect replies online.
+                </p>
+              </div>
+              <div className={c('card')}>
+                <h4>Nothing understood, nothing found</h4>
+                <p>
+                  “asdfghjkl”, “null”, “OR 1=1 --”: no occasion, age or design was read and nothing matched. With no
+                  filter picked, the page shows every template (newest, best-rated first) under a short notice instead
+                  of an empty page, and the search is still logged as zero results. A query that was understood, or a
+                  filtered search, that finds nothing stays empty.
                 </p>
               </div>
               <div className={c('card')}>
@@ -1384,36 +1429,69 @@ export function Explainer() {
               <p className={c('eg muted')}>
                 “5th wedding anniversary”: wedding anniversary templates before general anniversary templates.
               </p>
+              <p className={c('eg muted')}>
+                Quinceañera and Debut are their own events: a plain “birthday” shows birthday, kids and first birthday
+                cards first, then them (“maroon birthday” no longer opens with a debutante ball). “15th birthday” or
+                “quinceañera” keeps them first.
+              </p>
             </div>
           </div>
           <div className={c('rung')}>
             <span className={c('k')}>3</span>
             <div className={c('c')}>
-              <h4>Asked details matched, elements count double</h4>
-              <p>Asked “dinosaur” (element) and “5th”: dinosaur = 2 points, 5th = 1 point.</p>
+              <h4>Design matched: subject first, elements count double</h4>
+              <p>
+                First the subject: the asked themes and elements. A card tagged with the theme (Dinosaurs) comes before
+                one that only mentions it (Toy Story, which has Rex), and a card listing the asked element first or
+                second comes before one where it is 4th or 5th (a sheep card before a farm card with a sheep). No other detail can stand in for the subject, so
+                every dinosaur card comes before a “colorful” card without one. Then the rest of the design: color,
+                clear style (watercolor, rustic, glitter…), photo, other occasions named, who it is for (“adult” 18–64,
+                “teen” 13–19, “toddler” 1–3) and joint cards (“joint”, “twins”). A printed age is text the user can edit; the design is
+                not, so design comes before the age. Among equal design matches, a card where
+                the asked color is a main color (its first color tags, the first counting most) or in the asked shade
+                (“fuchsia”, “sky blue”) comes first; a card where it is only a detail follows. An all-black card comes
+                before a red card with some black. A gender said by a design word (“cowgirl”,
+                “princess”) is part of the design too: cowgirl cards before a cowboy card closer in age. With the price
+                setting on, “free” in the search then puts free cards before PRO ones among equal design matches
+                (“aqiqa invitation free”: every free aqiqa card, then the PRO ones).
+              </p>
+              <p className={c('eg muted')}>
+                “red 9th birthday”: mostly-red 9th cards → mostly-red cards (nearest age first) → cards with a little
+                red → other 9th cards. “colorful dinosaur 3rd birthday”: dinosaur cards (3rd first, then nearest ages) →
+                cards that only mention a dinosaur → colorful 3rd birthdays without one.
+              </p>
             </div>
           </div>
           <div className={c('rung')}>
             <span className={c('k')}>4</span>
             <div className={c('c')}>
-              <h4>Asked details matched</h4>
+              <h4>Milestone match</h4>
               <p>
-                Plain count: milestone, theme, element, color, format, type, photo, language, other occasions named.
+                Exact milestone → other milestones, nearest first → no milestone printed. Ages equally far keep together,
+                younger first: for a “90th”, 88th, 83rd, then every 80th, then the 100ths.
+              </p>
+              <p className={c('eg muted')}>
+                An occasion with its own age counts as asking for it when no age is typed: “debut” is an 18th, so 18th
+                debut cards → debut cards with no age → 18th birthday cards → a 21st debut → other birthdays nearest 18
+                → birthdays with no age. Same for quinceañera (15), sweet 16 and first birthday.
               </p>
             </div>
           </div>
           <div className={c('rung')}>
             <span className={c('k')}>5</span>
             <div className={c('c')}>
-              <h4>Milestone match</h4>
-              <p>Exact milestone → another milestone → no milestone printed.</p>
+              <h4>Milestone distance</h4>
+              <p>Closest number first. For a 50th: 55th and 45th come before 20th.</p>
             </div>
           </div>
           <div className={c('rung')}>
             <span className={c('k')}>6</span>
             <div className={c('c')}>
-              <h4>Milestone distance</h4>
-              <p>Closest number first. For a 50th: 55th and 45th come before 20th.</p>
+              <h4>Other asked details matched</h4>
+              <p>
+                Card type, language, format, gender, broad styles (elegant, modern…) and other words in the query. Then
+                Zodiac cards go after the rest unless the query asks for them.
+              </p>
             </div>
           </div>
           <div className={c('rung')}>
@@ -1464,13 +1542,13 @@ export function Explainer() {
                 <td className={c('num')}>5</td>
                 <td>Romantic 7th Anniversary Celebration</td>
                 <td className={c('num')}>7</td>
-                <td>Rung 6: 2 away from 5</td>
+                <td>Rung 5: 2 away from 5</td>
               </tr>
               <tr>
                 <td className={c('num')}>6</td>
                 <td>Elegant Floral 3-Year Anniversary Celebration</td>
                 <td className={c('num')}>3</td>
-                <td>Rung 6: also 2 away, rung 8 put the 7th first</td>
+                <td>Rung 5: also 2 away, rung 8 put the 7th first</td>
               </tr>
               <tr>
                 <td className={c('num')}>…</td>
@@ -1543,7 +1621,10 @@ export function Explainer() {
           </div>
           <div>
             <h3>Tag chips: which kind to show</h3>
-            <p className={c('sub')}>Counted live from the labels. No AI and no click data.</p>
+            <p className={c('sub')}>
+              Counted live from the labels of the best matches. When fewer than 8 cards match everything asked (three
+              65th cards), from the first 40 results instead, never from the whole occasion. No AI and no click data.
+            </p>
           </div>
         </div>
         <div className={c('oneline')}>
@@ -1820,7 +1901,7 @@ export function Explainer() {
               <span className={c('chip')}>Gender</span>
               <span className={c('chip')}>Language</span>
               <span className={c('chip')}>Photo</span>
-              <span className={c('chip')}>Free / PRO</span>
+              <span className={c('chip')}>Free / PRO (when the price setting is on)</span>
               <span className={c('chip')}>Orientation</span>
             </div>
           </div>
@@ -1933,56 +2014,60 @@ export function Explainer() {
           <div className={c('gap')}>
             <TriangleAlert className={c('i')} aria-hidden />
             <div>
-              <h4>“pregnancy” finds 3 templates</h4>
+              <h4>The local catalog is behind live</h4>
               <p>
-                It isn’t linked to Baby Shower, Gender Reveal or Pregnancy Announcement. Plan: make it a broad search
-                over those three.
+                Last synced 28 Oct (11,253 templates). Live results show 700+ newer templates we don’t have, such as “Fall Plaid Birthday” and a 65th and a 35th. Plan: sync, then tag them with AI (under $1).
               </p>
-            </div>
-            <span className={c('badge b-warn')}>Planned</span>
-          </div>
-          <div className={c('gap')}>
-            <TriangleAlert className={c('i')} aria-hidden />
-            <div>
-              <h4>“2 yrs old paw patrol” finds 0</h4>
-              <p>
-                “N years old” isn’t read as a birthday, so the milestone becomes a must-have. Plan: read it as a
-                birthday, so the milestone only ranks.
-              </p>
-            </div>
-            <span className={c('badge b-warn')}>Planned</span>
-          </div>
-          <div className={c('gap')}>
-            <TriangleAlert className={c('i')} aria-hidden />
-            <div>
-              <h4>Annaprashan spellings disagree (9 to 24)</h4>
-              <p>The same occasion is split across two labels. Plan: one occasion with every spelling.</p>
-            </div>
-            <span className={c('badge b-warn')}>Planned</span>
-          </div>
-          <div className={c('gap')}>
-            <TriangleAlert className={c('i')} aria-hidden />
-            <div>
-              <h4>Theme counts the same as milestone</h4>
-              <p>
-                Milestone text is easy to edit, a design is not. Proposal: an asked theme counts double, like elements.
-              </p>
-            </div>
-            <span className={c('badge b-warn')}>Proposal</span>
-          </div>
-          <div className={c('gap')}>
-            <TriangleAlert className={c('i')} aria-hidden />
-            <div>
-              <h4>A number alone (“75th”) returns about 3,000</h4>
-              <p>With no occasion, every template without a printed milestone passes.</p>
             </div>
             <span className={c('badge b-warn')}>To do</span>
           </div>
           <div className={c('gap')}>
             <TriangleAlert className={c('i')} aria-hidden />
             <div>
-              <h4>Audience is not used</h4>
-              <p>Saved on every template (kids, adults, couple…) but only feeds the meaning vector.</p>
+              <h4>“pregnancy” finds 0 templates</h4>
+              <p>
+                It isn’t linked to Baby Shower, Gender Reveal or Pregnancy Announcement. Plan: make it a broad search over those three.
+              </p>
+            </div>
+            <span className={c('badge b-warn')}>Planned</span>
+          </div>
+          <div className={c('gap')}>
+            <TriangleAlert className={c('i')} aria-hidden />
+            <div>
+              <h4>Annaprashan spellings disagree</h4>
+              <p>
+                “annaprashan” finds the ceremony, “annaprasan” and “anna prashan” don’t. Plan: one occasion with every spelling.
+              </p>
+            </div>
+            <span className={c('badge b-warn')}>Planned</span>
+          </div>
+          <div className={c('gap')}>
+            <TriangleAlert className={c('i')} aria-hidden />
+            <div>
+              <h4>Templates we don’t have</h4>
+              <p>
+                Birthday welcome boards and signs, birthday letters and gift cards, Coraline, baby-birthday thank-you cards, 47th birthdays. Search shows the closest designs; only new templates fix these.
+              </p>
+            </div>
+            <span className={c('badge b-warn')}>Catalog</span>
+          </div>
+          <div className={c('gap')}>
+            <TriangleAlert className={c('i')} aria-hidden />
+            <div>
+              <h4>“with effect” and “without RSVP”</h4>
+              <p>
+                No label for effects; meaning search returns plain cards. “without” is not understood (meaning search even puts an RSVP card first). About 1,500 birthday invitations print no RSVP wording, but what “without RSVP” should mean is a product decision.
+              </p>
+            </div>
+            <span className={c('badge b-warn')}>Decision</span>
+          </div>
+          <div className={c('gap')}>
+            <TriangleAlert className={c('i')} aria-hidden />
+            <div>
+              <h4>Audience only for adults and teens</h4>
+              <p>
+                “adult” and “teen” rank by age range. Other audiences saved on templates (couple, corporate…) still only feed the meaning vector.
+              </p>
             </div>
             <span className={c('badge b-warn')}>Parked</span>
           </div>
@@ -2086,6 +2171,31 @@ export function Explainer() {
                 <td>Meaning minimum</td>
                 <td className={c('num')}>0.35</td>
                 <td>Best match below this → meaning ignored</td>
+              </tr>
+              <tr>
+                <td>Main color</td>
+                <td className={c('num')}>first 2 tags</td>
+                <td>An asked color in a card’s first two color tags is a main color (first tag counts most): ranks before a color detail</td>
+              </tr>
+              <tr>
+                <td>Main element</td>
+                <td className={c('num')}>first 2 tags</td>
+                <td>An asked element in a card’s first two element tags: ranks before a card where it is a minor part</td>
+              </tr>
+              <tr>
+                <td>Separate kinds</td>
+                <td className={c('num')}>Quinceañera, Debut</td>
+                <td>After the other cards for a plain “birthday”, unless their age is asked</td>
+              </tr>
+              <tr>
+                <td>Age ranges</td>
+                <td className={c('num')}>18–64 / 13–19 / 1–3</td>
+                <td>“adult” / “teen” / “toddler”: cards in this range first</td>
+              </tr>
+              <tr>
+                <td>Occasion ages</td>
+                <td className={c('num')}>18 / 15 / 16 / 1</td>
+                <td>Debut / quinceañera / sweet 16 / first birthday, when no age is typed</td>
               </tr>
               <tr>
                 <td>Element priority</td>
@@ -2194,6 +2304,17 @@ export function Explainer() {
           <div>
             <dt>Tier</dt>
             <dd>Occasion closeness: asked occasion, its parent, or other.</dd>
+          </div>
+          <div>
+            <dt>Main color</dt>
+            <dd>
+              A color among a template’s first two color tags. Tags list the most visible colors first, so a brown card
+              has brown there, and a blue card with brown boots has it further down.
+            </dd>
+          </div>
+          <div>
+            <dt>Implied age</dt>
+            <dd>The age an occasion stands for when none is typed: a debut is an 18th, a quinceañera a 15th.</dd>
           </div>
           <div>
             <dt>Anchor</dt>

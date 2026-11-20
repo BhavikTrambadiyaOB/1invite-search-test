@@ -36,6 +36,9 @@ export const MILESTONE_BIRTHDAYS: Record<number, string> = { 1: 'first_birthday'
  */
 export const KEYWORD_SYNONYMS: string[][] = [
   ['afterparty', 'after party', 'after-party'],
+  ['voucher', 'vouchers', 'ticket', 'tickets', 'admission', 'admit one', 'boarding pass', 'coupon'],
+  // Aqiqah is read as a Naming Ceremony; Aqiqah cards still come first among them.
+  ['aqiqah', 'aqiqa', 'aqeeqah', 'aqeeqa', 'akika'],
   ['timeline', 'time line', 'program', 'programme', 'itinerary', 'schedule', 'agenda', 'order of service', 'order of events', 'order of the day', 'run of show'],
 ]
 
@@ -80,14 +83,16 @@ export const OCCASIONS: OccasionDef[] = [
   { id: 'first_birthday', label: 'First Birthday', group: 'Birthday', parent: 'birthday', phrases: ['first birthday', '1st birthday', 'one year old', 'wild one', 'onederful', 'our little one is turning one', 'turning one', 'mi primer ano', 'primer cumpleanos'] },
   { id: 'kids_birthday', label: 'Kids Birthday', group: 'Birthday', parent: 'birthday', phrases: ['kids birthday', 'kid birthday', 'children birthday', 'childrens birthday', 'toddler birthday'] },
   { id: 'sweet_16', label: 'Sweet 16', group: 'Birthday', parent: 'birthday', phrases: ['sweet 16', 'sweet sixteen', '16th birthday', 'sixteenth birthday'] },
-  { id: 'quinceanera', label: 'Quinceañera', group: 'Birthday', parent: 'birthday', phrases: ['quinceanera', 'quince anos', 'quince', 'xv anos', 'mis xv', 'mis quince'] },
+  { id: 'quinceanera', label: 'Quinceañera', group: 'Birthday', parent: 'birthday', phrases: ['quinceanera', 'quince anos', 'quince', 'xv anos', 'mis xv', 'mis quince', '15 anos', 'quinceanero'] },
+  // Filipino 18th birthday ("debut", "debutante ball"): a debut card is an 18th unless it prints another age.
+  { id: 'debut', label: 'Debut', group: 'Birthday', parent: 'birthday', phrases: ['debut', 'debuts', 'debutante', 'debutantes', 'debutante ball', 'debut party'] },
   { id: 'surprise_party', generic: true, label: 'Surprise Party', group: 'Birthday', parent: 'birthday', phrases: ['surprise party', 'surprise birthday', 'shh its a surprise', 'its a surprise'] },
 
   // Baby & Kids
   { id: 'baby_shower', label: 'Baby Shower', group: 'Baby & Kids', phrases: ['baby shower', 'baby sprinkle', 'sip and see', 'sip see', 'oh baby', 'baby is on the way', 'baby on the way', 'ready to pop', 'bebe en camino', 'srimant', 'seemantham', 'simantham', 'godh bharai', 'dohale jevan'], weak: ['mom to be', 'mommy to be', 'little one is on the way'] },
   { id: 'gender_reveal', label: 'Gender Reveal', group: 'Baby & Kids', phrases: ['gender reveal', 'he or she', 'boy or girl', 'pink or blue', 'touchdowns or tutus', 'bows or bowties', 'guns or glitter', 'what will baby be'] },
   { id: 'birth_announcement', label: 'Birth Announcement', group: 'Baby & Kids', phrases: ['birth announcement', 'baby announcement', 'its a boy', 'its a girl', 'welcome baby', 'pregnancy announcement', 'were expecting', 'we are expecting', 'newborn'] },
-  { id: 'naming_ceremony', label: 'Naming Ceremony', group: 'Baby & Kids', phrases: ['naming ceremony', 'name ceremony', 'namkaran', 'naamkaran', 'barsala', 'cradle ceremony', 'aqiqah'] },
+  { id: 'naming_ceremony', label: 'Naming Ceremony', group: 'Baby & Kids', phrases: ['naming ceremony', 'name ceremony', 'namkaran', 'naamkaran', 'barsala', 'cradle ceremony', 'aqiqah', 'aqiqa', 'aqeeqah', 'aqeeqa', 'akika'] },
   { id: 'baptism', label: 'Baptism & Christening', group: 'Religious & Cultural', phrases: ['baptism', 'baptismal', 'christening', 'bautizo', 'bautismo', 'dedication ceremony', 'baby dedication'] },
   { id: 'first_communion', label: 'First Communion', group: 'Religious & Cultural', phrases: ['first communion', 'holy communion', 'primera comunion'] },
   { id: 'confirmation', label: 'Confirmation', group: 'Religious & Cultural', phrases: ['confirmation', 'confirmacion', 'holy confirmation'] },
@@ -268,16 +273,66 @@ export const FORMATS: SimpleDef[] = [
 // ---- Document types ---------------------------------------------------------
 
 /** Occasion groups where "card" usually means a greeting card ("christmas card", "diwali card"), not an invitation. */
-export const CARD_MEANS_GREETING_GROUPS = ['Holidays', 'Religious & Cultural', 'Greetings'] as const
+export const CARD_MEANS_GREETING_GROUPS = ['Holidays', 'Religious & Cultural', 'Greetings', 'Birthday'] as const
 
 export const DOC_TYPES: SimpleDef[] = [
-  { id: 'save_the_date', label: 'Save the Date', phrases: ['save the date', 'save our date'] },
+  { id: 'save_the_date', label: 'Save the Date', phrases: ['save the date', 'save our date', 'reminder', 'reminders'] },
   { id: 'greeting', label: 'Greeting Card', phrases: ['greeting', 'greetings', 'greeting card', 'greeting cards', 'wishes', 'wish', 'thank you card', 'ecard', 'e card', 'ecards'] },
   { id: 'announcement', label: 'Announcement', phrases: ['announcement', 'announcing', 'flyer', 'poster', 'notice', 'folleto', 'folletos'] },
   { id: 'invitation', label: 'Invitation', phrases: ['invitation', 'invite', 'invites', 'invitations', 'invitacion', 'plantilla de invitacion', 'rsvp', 'join us', 'you are invited', 'youre invited'] },
 ]
 
 // ---- Audiences --------------------------------------------------------------
+
+/**
+ * Who a query asks for ("adult birthday", "teenager birthday"), read by the rules. Narrower than AUDIENCES,
+ * which also guesses from other words when tagging templates. A template fits by its printed age when it has
+ * one, else by its audience tag.
+ */
+export const QUERY_AUDIENCES: (SimpleDef & { ages: [number, number] })[] = [
+  { id: 'adults', label: 'Adults', ages: [18, 64], phrases: ['adult', 'adults', 'adults only', 'adult only', 'grown up', 'grown ups', 'grownup'] },
+  { id: 'teens', label: 'Teens', ages: [13, 19], phrases: ['teen', 'teens', 'teenager', 'teenagers', 'teenage', 'tween', 'tweens'] },
+  // A toddler is 1 to 3: "toddler birthday" shows 1st to 3rd birthdays first, not every kids birthday.
+  { id: 'toddlers', label: 'Toddlers', ages: [1, 3], phrases: ['toddler', 'toddlers'] },
+]
+
+/**
+ * A joint event: one card for two or more people ("joint birthday", "twins birthday"). Cards say so in words
+ * ("triple celebration") or in the printed text, which `JOINT_CARD_TEXT` finds (case-insensitive):
+ * "Sophia & Joseph's", "Arieta & Richard are turning 10", "Barb is 6 & John is 4", "Richard's 2nd and Sophia's 5th".
+ */
+export const JOINT_WORDS = ['joint', 'twin', 'twins', 'sibling', 'siblings', 'double', 'triple', 'combined']
+/**
+ * "without rsvp", "no rsvp", "rsvp free": the printed card should have no reply line. Every 1invites invitation can
+ * still collect replies online; this is about the text on the design.
+ */
+export const NO_RSVP_QUERY = /\b(?:without|no|non|skip)\s+(?:an?\s+|the\s+)?rsvp\b|\brsvp\s*(?:free|less)\b/
+/** A reply line printed on a card (Postgres regex, case-insensitive): "RSVP", "Reply by", "Regrets only". */
+export const RSVP_CARD_TEXT = 'rsvp|r\\.s\\.v\\.p|reply by|respond by|regrets only|please confirm|kindly reply'
+
+/** Words that make a birthday a kids birthday ("joint kids party, birthday", "birthday for children"). */
+export const KIDS_WORDS = ['kid', 'kids', 'child', 'children', 'childrens', 'toddler', 'toddlers']
+export const JOINT_CARD_TEXT = [
+  "[a-z]{2,}\\s*&\\s*[a-z]{2,}['’]s\\M",
+  '\\mare\\s+turning\\M',
+  '\\mis\\s+\\d+\\s*(&|and)\\s+[a-z]{2,}\\s+is\\s+\\d+',
+  "['’]s\\s+\\d+(st|nd|rd|th)[\\s|]*(&|and)[\\s|]*[a-z]{2,}['’]s",
+].join('|')
+
+/**
+ * Designs for a narrow taste that rank after other matches unless the query asks for them. Zodiac cards are
+ * close in meaning to any birthday ("my birthday", "birthday reminder") and are new, so they led plain
+ * birthday searches.
+ */
+export const NICHE_DESIGNS: { id: string; words: string[]; tags: string[]; namePattern: string }[] = [
+  {
+    id: 'zodiac',
+    words: ['zodiac', 'astrology', 'astrological', 'horoscope', 'star sign', 'star signs', 'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'],
+    tags: ['zodiac', 'zodiac_wheel'],
+    namePattern: 'zodiac|astrolog|horoscope',
+  },
+]
+
 
 export const AUDIENCES: SimpleDef[] = [
   { id: 'kids', label: 'Kids', phrases: ['kids', 'kid', 'children', 'childrens', 'toddler', 'boy', 'girl', 'little', 'baby', 'first birthday', '1st birthday'] },
@@ -438,6 +493,8 @@ export const ASSETS: AssetDef[] = [
   a('football', 'Football', ['sports'], ['american football', 'touchdown']),
   a('soccer_ball', 'Soccer Ball', ['sports'], ['soccer']),
   a('basketball', 'Basketball', ['sports']),
+  // "eleventh birthday at jump place": a trampoline park party. Cards show a trampoline or say "jump party".
+  a('trampoline', 'Trampoline', ['sports'], ['trampolines', 'trampoline park', 'jump place', 'jump park', 'jump party', 'jumping party', 'bounce house', 'bounce party', 'bouncy castle', 'bounce castle']),
   a('baseball', 'Baseball', ['sports'], ['baseball bat', 'softball']),
   a('hockey', 'Hockey Stick', ['sports'], ['hockey', 'hockey puck', 'puck', 'ice hockey']),
   a('tennis', 'Tennis Racket', ['sports'], ['tennis', 'racket', 'pickleball']),
@@ -561,7 +618,7 @@ export const GENDERS: SimpleDef[] = [
       'girl', 'girls', 'its a girl', 'baby girl', 'little girl', 'she', 'her', 'hers', 'herself', 'daughter',
       'princess', 'little lady', 'ballerina', 'quinceanera', 'quince', 'bat mitzvah', 'sister', 'mom', 'mommy',
       'mother', 'wife', 'woman', 'women', 'mujer', 'mujeres', 'femme', 'femmes', 'ladies', 'lady', 'queen', 'bride', 'galentine', 'niece', 'granddaughter',
-      'grandma', 'grandmother', 'aunt', 'nina', 'mis xv',
+      'grandma', 'grandmother', 'aunt', 'nina', 'mis xv', 'cowgirl', 'cowgirls',
     ],
   },
   {
@@ -570,14 +627,14 @@ export const GENDERS: SimpleDef[] = [
     phrases: [
       'boy', 'boys', 'its a boy', 'baby boy', 'little boy', 'he', 'his', 'him', 'himself', 'son', 'prince',
       'little man', 'lil man', 'bar mitzvah', 'brother', 'dad', 'daddy', 'father', 'husband', 'man', 'men', 'hombre', 'hombres', 'homme', 'hommes',
-      'gentleman', 'gentlemen', 'king', 'groom', 'nephew', 'grandson', 'grandpa', 'grandfather', 'uncle',
+      'gentleman', 'gentlemen', 'king', 'groom', 'nephew', 'grandson', 'grandpa', 'grandfather', 'uncle', 'cowboy', 'cowboys',
     ],
   },
   { id: 'neutral', label: 'Gender-neutral', phrases: ['gender neutral', 'unisex'] },
 ]
 
 /** Gender words that also describe the design (a princess card), so they stay usable as themes and elements. */
-export const DESIGN_GENDER_WORDS = new Set(['princess', 'prince', 'queen', 'king', 'ballerina', 'quinceanera', 'quince', 'bride', 'groom'])
+export const DESIGN_GENDER_WORDS = new Set(['princess', 'prince', 'queen', 'king', 'ballerina', 'quinceanera', 'quince', 'bride', 'groom', 'cowgirl', 'cowgirls', 'cowboy', 'cowboys'])
 
 /**
  * Words AI tagging may not turn into new themes, elements or styles: who the card is for (girl, baby, kids)
@@ -710,7 +767,7 @@ export const ZULU_WORDS = /\b(umemulo|umgidi|umembeso|isimemo|umndeni|uyanimema|
 // ---- Colors -----------------------------------------------------------------
 
 export const COLORS: SimpleDef[] = [
-  { id: 'pink', label: 'Pink', phrases: ['pink', 'blush', 'rose pink', 'hot pink', 'magenta', 'fuchsia', 'rosa'] },
+  { id: 'pink', label: 'Pink', phrases: ['pink', 'blush', 'rose pink', 'hot pink', 'magenta', 'fuchsia', 'fucsia', 'fuschia', 'fiusha', 'rosa'] },
   { id: 'red', label: 'Red', phrases: ['red', 'crimson', 'scarlet', 'ruby', 'cherry', 'rojo'] },
   { id: 'burgundy', label: 'Burgundy', phrases: ['burgundy', 'maroon', 'wine', 'marsala'] },
   { id: 'orange', label: 'Orange', phrases: ['orange', 'coral', 'peach', 'apricot', 'tangerine'] },
@@ -725,7 +782,7 @@ export const COLORS: SimpleDef[] = [
   { id: 'white', label: 'White', phrases: ['white', 'ivory', 'cream', 'blanco'] },
   { id: 'silver', label: 'Silver', phrases: ['silver', 'grey', 'gray', 'platinum', 'metallic'] },
   { id: 'brown', label: 'Brown & Neutral', phrases: ['brown', 'beige', 'tan', 'neutral', 'nude', 'kraft', 'taupe', 'earthy'] },
-  { id: 'rose_gold', label: 'Rose Gold', phrases: ['rose gold'] },
+  { id: 'rose_gold', label: 'Rose Gold', phrases: ['rose gold', 'rosegold'] },
   { id: 'pastel', label: 'Pastel', phrases: ['pastel', 'pastels'] },
   { id: 'multicolor', label: 'Multicolor', phrases: ['rainbow', 'multicolor', 'multicolour', 'colorful', 'colourful'] },
 ]
@@ -735,6 +792,32 @@ export const DOC_TYPE_BY_ID = new Map(DOC_TYPES.map((d) => [d.id, d]))
 export const THEME_BY_ID = new Map(THEMES.map((d) => [d.id, d]))
 export const STYLE_BY_ID = new Map(STYLES.map((d) => [d.id, d]))
 export const COLOR_BY_ID = new Map(COLORS.map((d) => [d.id, d]))
+
+/**
+ * Shade words a query can name, and the template shades (color_shades) that show them. A color family alone is
+ * too wide for these: "fuchsia" is pink, but a blush pink card is not fuchsia. Cards in the shade rank first.
+ */
+export const COLOR_SHADES: { words: string[]; shades: string }[] = [
+  { words: ['fuchsia', 'fucsia', 'fuschia', 'fiusha', 'magenta', 'hot pink'], shades: 'fuchsia|magenta|hot pink|neon pink|bright pink' },
+  { words: ['blush', 'baby pink', 'light pink', 'pastel pink'], shades: 'blush|baby pink|light pink|pale pink|pastel pink' },
+  { words: ['sky blue', 'baby blue', 'light blue'], shades: 'sky blue|baby blue|light blue|pale blue|powder blue' },
+  { words: ['royal blue'], shades: 'royal blue' },
+  { words: ['turquoise', 'aqua'], shades: 'turquoise|aqua' },
+  { words: ['mauve'], shades: 'mauve|dusty rose' },
+  { words: ['lavender', 'lilac'], shades: 'lavender|lilac' },
+  { words: ['plum'], shades: 'plum' },
+  { words: ['maroon', 'wine'], shades: 'maroon|burgundy|wine' },
+  { words: ['crimson', 'scarlet'], shades: 'crimson|scarlet|deep red|bright red' },
+  { words: ['coral'], shades: 'coral' },
+  { words: ['peach'], shades: 'peach' },
+  { words: ['mustard'], shades: 'mustard' },
+  { words: ['sage'], shades: 'sage' },
+  { words: ['mint'], shades: 'mint' },
+  { words: ['emerald'], shades: 'emerald' },
+  { words: ['olive'], shades: 'olive' },
+  { words: ['ivory', 'cream'], shades: 'ivory|cream' },
+  { words: ['beige', 'nude', 'taupe'], shades: 'beige|sand|taupe|nude' },
+]
 export const AUDIENCE_BY_ID = new Map(AUDIENCES.map((d) => [d.id, d]))
 export const MOOD_BY_ID = new Map(MOODS.map((d) => [d.id, d]))
 export const LANGUAGE_BY_ID = new Map(LANGUAGES.map((d) => [d.id, d]))
