@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { connection } from 'next/server'
 import { Suspense } from 'react'
 import { BackLink } from '@/components/search/back-link'
+import { ReportFailedQuery } from '@/components/search/report-failed-query'
 import { ReportFeedbackDialog } from '@/components/search/report-feedback-dialog'
 import { ReportFeedbackSummary } from '@/components/search/report-feedback-summary'
 import { ReportGrid } from '@/components/search/report-grid'
@@ -60,7 +61,12 @@ async function ReportDetail({ params }: { params: PageProps<'/search/report/[id]
             </p>
             <ReportQueryTags query={report.query} tags={tags} />
           </div>
-          <ReportFeedbackDialog reportId={report.id} query={report.query} feedback={report.feedback} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Suspense fallback={<Skeleton className="h-9 w-48" />}>
+              <ReportFailedQuery reportId={Number(report.id)} version={report.version} phase={report.phase} />
+            </Suspense>
+            <ReportFeedbackDialog reportId={report.id} query={report.query} feedback={report.feedback} />
+          </div>
         </div>
         <ReportFeedbackSummary feedback={report.feedback} />
       </header>

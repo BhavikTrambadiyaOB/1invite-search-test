@@ -78,12 +78,16 @@ export type FailedQuery = {
   caseTypes: string[]
 }
 
-/** Which searches to judge: every one, only those made on the search page, or one report run (version / phase). */
-export type FailedQuerySource = { live?: boolean; version?: number | null; phase?: number | null }
+/**
+ * Which searches to judge: every one, only those made on the search page, one report run (version / phase), or the
+ * search of one report (reportId, for the report page).
+ */
+export type FailedQuerySource = { live?: boolean; version?: number | null; phase?: number | null; reportId?: number | null }
 
-/** A logs filter on search_log `l` for the source; $v, $p and $live are the placeholders of its three values. */
-function sourceSql(v: string, p: string, live: string) {
+/** A logs filter on search_log `l` for the source; $v, $p, $live and $report are the placeholders of its four values. */
+function sourceSql(v: string, p: string, live: string, report: string) {
   return `(not ${live} or l.report_id is null)
+    and (${report}::bigint is null or l.report_id = ${report})
     and ((${v}::int is null and ${p}::int is null) or exists (
       select 1 from search_report r
        where r.id = l.report_id and (${v}::int is null or r.version = ${v}) and (${p}::int is null or r.phase = ${p})))`
@@ -103,13 +107,13 @@ export async function getFailedQueries({
   /** Also list searches that worked (no failed visit), with the gap type no_gap: to check a whole report run. */
   includePassed?: boolean
 } = {}) {
-  const sourceValues = [source.version ?? null, source.phase ?? null, source.live === true]
+  const sourceValues = [source.version ?? null, source.phase ?? null, source.live === true, source.reportId ?? null]
   // Recount by understood tags the queries whose search found too few exact matches.
   const { rows: thin } = await db.query<{ normalized_query: string; intent: Record<string, unknown> | null }>(
     `select distinct on (normalized_query) normalized_query, intent
        from search_log l
       where created_at >= $1 and created_at < $2 and normalized_query <> ''
-        and result_count > 0 and exact_count < $3 and ${sourceSql('$4', '$5', '$6')}
+        and result_count > 0 and exact_count < $3 and ${sourceSql('$4', '$5', '$6', '$7')}
       order by normalized_query, created_at desc`,
     [from, to, FAILURE_RULES.fewExactMatches, ...sourceValues],
   )
@@ -119,7 +123,7 @@ export async function getFailedQueries({
        from search_log l
        join search_report rp on rp.id = l.report_id
        join search_report_import i on i.version = rp.version and i.normalized_query = rp.normalized_query and i.case_type <> ''
-      where l.created_at >= $1 and l.created_at < $2 and ${sourceSql('$3', '$4', '$5')}
+      where l.created_at >= $1 and l.created_at < $2 and ${sourceSql('$3', '$4', '$5', '$6')}
       group by l.normalized_query`,
     [from, to, ...sourceValues],
   )
@@ -134,7 +138,7 @@ export async function getFailedQueries({
               case when lag(l.created_at) over w is null
                      or l.created_at - lag(l.created_at) over w > make_interval(mins => $7) then 1 else 0 end as starts_visit
          from search_log l
-        where l.created_at >= $1 and l.created_at < $2 and l.normalized_query <> '' and ${sourceSql('$10', '$11', '$12')}
+        where l.created_at >= $1 and l.created_at < $2 and l.normalized_query <> '' and ${sourceSql('$10', '$11', '$12', '$14')}
        window w as (partition by l.session_id, l.normalized_query order by l.created_at)
      ),
      numbered as (
@@ -225,7 +229,7 @@ export async function getFailedQueries({
       limit $6`,
     [
       from, to, FAILURE_RULES.reformulateWithinSeconds, FAILURE_RULES.lowRelevance, FAILURE_RULES.settleMinutes, limit,
-      FAILURE_RULES.visitMinutes, FAILURE_RULES.fewExactMatches, JSON.stringify(tagExactByQuery), ...sourceValues, includePassed,
+      FAILURE_RULES.visitMinutes, FAILURE_RULES.fewExactMatches, JSON.stringify(tagExactByQuery), ...sourceValues.slice(0, 3), includePassed, sourceValues[3],
     ],
   )
 
@@ -282,6 +286,12 @@ export async function getFailedQueries({
       caseTypes: caseTypesByQuery.get(r.normalized_query) ?? [],
     }
   })
+}
+
+/** The failed-query check of one report's logged search (passed or failed); null when it is not logged yet. */
+export async function getReportFailedQuery(reportId: number) {
+  const [row] = await getFailedQueries({ limit: 1, source: { reportId }, includePassed: true })
+  return row ?? null
 }
 
 /** Saves one day's report into failed_query_report (replacing an earlier run for that day). */

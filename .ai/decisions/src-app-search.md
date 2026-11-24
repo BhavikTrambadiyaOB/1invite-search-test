@@ -6,6 +6,16 @@ paths:
 
 # Src App Search decisions
 
+## 2026-11-24 · Report failed-query check moves into a header button
+- **Why:** The user found the inline panel on the report page unnecessary and asked for its details to open from a button next to Edit feedback instead.
+- **What:** The report page header has an Explain numbers button (with the gap badge) beside the feedback button. It opens the Explain numbers window with the numbers (including Top relevance), the reasons, what to do, unknown words and missing-tag hints, when it was judged, and an Open in Failed queries link. If the search is not logged yet, the button is disabled and its tooltip gives the log command. The inline panel is gone.
+- **Files:** `src/components/search/report-failed-query.tsx`, `src/components/search/count-explanation.tsx`, `src/app/search/report/[id]/page.tsx`
+
+## 2026-11-24 · Report page shows its failed-query check
+- **Why:** Testers checking one report query should not have to filter the whole Failed queries list to see why it passed or failed.
+- **What:** Each /search/report/:id page shows a Failed query check panel for that report search: gap, reasons, Templates / Direct (by tags) / Partial / Occasion only / Top relevance, the collection direction, missing-tag hints, Explain numbers and a link to the row on Failed queries. It uses the same judgement as the Failed queries page, limited to that report_id (FailedQuerySource.reportId). If the search is not logged yet, the panel shows the log command. Gap labels and the direction text are shared in failed-query-gaps.ts.
+- **Files:** `src/components/search/report-failed-query.tsx`, `src/app/search/report/[id]/page.tsx`, `src/lib/search/failed-queries.ts`, `src/lib/search/failed-query-gaps.ts`, `src/app/search/insights/page.tsx`
+
 ## 2026-11-23 · Failed queries: Explain numbers panel
 - **Why:** Testers could not tell why a row shows e.g. Direct 0 and Partial 57; the debug view is only readable by developers.
 - **What:** Each failed query has an Explain numbers button: what search understood, how many cards of the occasion have each asked part, how many miss only that part, what Templates / Direct / Occasion only / Partial mean, and the closest blocker ("18 cards have everything except 80th"). Recounted on today’s data with the same tests as search (live occasion family, joint and no-RSVP rules); matched search exactly on 50 of 55 logged rows, the rest are no-occasion searches, flagged in the panel. Report only.

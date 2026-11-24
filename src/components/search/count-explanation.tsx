@@ -47,20 +47,34 @@ export type ExplainRow = {
   /** What to add or improve (collection direction). */
   direction: string
   /** The numbers the search showed when it was logged (average of first searches per visit). */
-  logged: { templates: number; direct: number | null; partial: number | null; occasionOnly: number | null }
+  logged: { templates: number; direct: number | null; partial: number | null; occasionOnly: number | null; relevance?: number | null }
 }
 
 /**
  * "Explain numbers" on a failed query: in plain words why it failed, what search looked for and why the row shows
  * its Direct, Partial and Occasion only numbers, part by part. For testers; the debug view is for developers.
  */
-export function CountExplanationDialog({ row, explanation }: { row: ExplainRow; explanation: CountExplanation | null }) {
+export function CountExplanationDialog({
+  row,
+  explanation,
+  trigger,
+  children,
+}: {
+  row: ExplainRow
+  explanation: CountExplanation | null
+  /** The button that opens it; defaults to the small "Explain numbers" button of the failed-queries table. */
+  trigger?: React.ReactNode
+  /** More details, shown after the reasons (the report page adds data hints and a link to the list). */
+  children?: React.ReactNode
+}) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="xs" className="mt-1.5 gap-1">
-          <CalculatorIcon aria-hidden /> Explain numbers
-        </Button>
+        {trigger ?? (
+          <Button variant="outline" size="xs" className="mt-1.5 gap-1">
+            <CalculatorIcon aria-hidden /> Explain numbers
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-h-[88vh] w-[calc(100%-2rem)] gap-5 overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
@@ -72,6 +86,7 @@ export function CountExplanationDialog({ row, explanation }: { row: ExplainRow; 
         </DialogHeader>
         <Numbers row={row} explanation={explanation} />
         <Reasons row={row} />
+        {children}
         {explanation ? (
           <Parts explanation={explanation} />
         ) : (
@@ -110,9 +125,10 @@ function Numbers({ row, explanation: e }: { row: ExplainRow; explanation: CountE
     { label: 'Partial', value: logged.partial, note: 'Some of the asked parts, or a nearby occasion' },
     { label: 'Occasion only', value: logged.occasionOnly, note: occasion ? `${occasion} cards with none of the parts` : 'No occasion understood' },
   ]
+  const relevance = logged.relevance === undefined ? undefined : logged.relevance === null ? '–' : `${Math.round(logged.relevance * 100)}%`
   return (
     <Section step={1} title="The numbers">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className={cn('grid grid-cols-2 gap-2', relevance === undefined ? 'sm:grid-cols-4' : 'sm:grid-cols-5')}>
         {tiles.map((t) => (
           <div key={t.label} className="flex flex-col gap-0.5 rounded-lg border p-3">
             <span className="text-muted-foreground text-xs">{t.label}</span>
@@ -121,6 +137,13 @@ function Numbers({ row, explanation: e }: { row: ExplainRow; explanation: CountE
             <span className="text-muted-foreground text-xs leading-snug">{t.note}</span>
           </div>
         ))}
+        {relevance !== undefined && (
+          <div className="flex flex-col gap-0.5 rounded-lg border p-3">
+            <span className="text-muted-foreground text-xs">Top relevance</span>
+            <span className="text-2xl font-semibold tabular-nums">{relevance}</span>
+            <span className="text-muted-foreground text-xs leading-snug">How well the best card fits</span>
+          </div>
+        )}
       </div>
       <p className="text-muted-foreground text-xs">Templates = Direct + Partial + Occasion only.</p>
     </Section>
