@@ -39,7 +39,11 @@ export async function saveEnrichments(records: EnrichmentRecord[], source: 'rule
   }))
   const result = await db.query(
     `update template_search t set
-        occasion = r.occasion, gender = r.gender, assets = r.assets, occasion_confidence = r.occasion_confidence, occasion_words = r.occasion_words,
+        occasion = r.occasion,
+        -- A person-reviewed gender (/search/gender-review, applied) wins over the tagger.
+        gender = coalesce((select g.final_gender from template_gender_review g
+                            where g.template_id = t.template_id and g.applied_at is not null), r.gender),
+        assets = r.assets, occasion_confidence = r.occasion_confidence, occasion_words = r.occasion_words,
         milestone = r.milestone, format = r.format, doc_type = r.doc_type, audience = r.audience,
         themes = r.themes, styles = r.styles, colors = r.colors, quality_score = r.quality_score,
         moods = r.moods, color_shades = r.color_shades, extra_occasions = r.extra_occasions, languages = r.languages,

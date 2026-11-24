@@ -7,6 +7,41 @@ paths:
 
 # Src Lib Search decisions
 
+## 2026-11-24 · Failed queries: case type filter
+- **Why:** User wants to check failed and passed report queries by test-sheet case type, as on the Search report page.
+- **What:** Each failed-query row gets the case types of its query from search_report_import (same version as its report, matched by normalized query) and shows them under the query; a Case type filter lists the chosen version types (all versions when none). Also fixed a duplicate React key when a theme and an element share an id (rainbow).
+- **Files:** `src/lib/search/failed-queries.ts`, `src/lib/search/failed-query-filters.ts`, `src/app/search/insights/page.tsx`
+
+## 2026-11-24 · Failed queries page lists passed searches as No gap
+- **Why:** User wants to check every report query on the page, not only the failed ones (v3 phase 2: 846 searches, 332 failed).
+- **What:** getFailedQueries({ includePassed }) also returns searches with no failed visit, gap type no_gap (green "No gap" badge, Explain numbers says why it passed). The page lists them by default; a Gap filter picks All, Failed only, No gap, Content gap, Search gap or Not chosen. The daily report still saves failed searches only.
+- **Files:** `src/lib/search/failed-queries.ts`, `src/lib/search/failed-query-filters.ts`, `src/app/search/insights/page.tsx`, `src/components/search/count-explanation.tsx`
+
+## 2026-11-23 · Failed queries from report runs; new filters
+- **Why:** User wants every failed query of a search report run (version / phase) on the Failed queries page, with the report filters, more sorts and a number condition; the date range, gap and minimum-visit filters were removed on request.
+- **What:** search_log.report_id (migration 018) links a log row to its report; saveSearchReport logs the current search of every capture, and npm run search:report:log -- --version=N [--phase=N] [--again] backfills older reports (v1, v2, v3 p1 and p2 logged with todays search, cached readings, no AI calls). Report searches are judged on results only (no click is skipped). Page filters: search query, version (all / search page only / vN report), phase, sort (latest first default, oldest, priority, visits, fewest direct, most/fewest templates, lowest relevance, A-Z) and one condition column op number (=, >, <, >=, <=). Rows link to their report; the Why column keeps only Explain numbers, whose modal now holds the reasons and the collection direction. The daily failed-query report covers search-page searches only.
+- **Files:** `db/migrations/018_search_log_report.sql`, `src/lib/search/report-search-log.ts`, `src/lib/search/report.ts`, `scripts/log-report-searches.ts`, `src/lib/search/failed-queries.ts`, `src/lib/search/failed-query-filters.ts`, `src/app/search/insights/page.tsx`, `src/components/search/count-explanation.tsx`
+
+## 2026-11-23 · Failed queries: Not chosen, recount by tags, missing-tag hints
+- **Why:** User review of Failed queries: "holy cow im one birthday" (5 exact, 100% relevance) and the Cocomelon toddler search (0 exact because "toddler" is not printed on cards, though the toddlers audience covers it) were labelled content gaps. Search logic is approved and must not change, so only the report was improved.
+- **What:** Report only, search unchanged. 1) Exact-match reasons use the larger of the logged exact count and a recount where typed words covered by an understood tag (audience, theme, element, occasion, color, style, format; not gender) count through the tag; when only that wording is missing the visit gets the note "Typed words not on cards", not "No exact match". 2) New gap type not_chosen: understood, failed only by no click / bounce / searching again, with a strong best match. 3) Amber hint when cards name an asked theme or element but lack its tag (name only, broad themes skipped).
+- **Files:** `src/lib/search/failed-queries.ts`, `src/lib/search/failed-query-checks.ts`, `src/app/search/insights/page.tsx`
+
+## 2026-11-20 · Reviewed gender applied to birthday templates
+- **Why:** The AI gender check plus a person review of all 1,604 neutral birthday cards (/search/gender-review) found 278 girl and 205 boy cards wrongly tagged neutral, so girl/boy searches missed them.
+- **What:** template_search.gender now uses final_gender from template_gender_review (applied_at set; current_gender keeps the old value as backup). Enrichment saves keep an applied reviewed gender instead of the tagger value. Embeddings of the 483 changed cards are stale until search:embed runs.
+- **Files:** `src/lib/search/enrichment-store.ts`, `db/migrations/016_template_gender_review.sql`
+
+## 2026-11-20 · Asked shade counts as much as a first color tag
+- **Why:** Retest of approved v3 phase 1 queries: after the first color tag became worth 2 points, "birthday mauve" put plain purple-first cards above cards with the mauve shade (approved order dropped to 13/24).
+- **What:** A match on the asked shade ("mauve", "sky blue", "fuchsia") now counts RANKING.mainColorTags points, the same as the color being first. Mauve back to 19/24 of the approved order; fuchsia, hot pink and sky blue unchanged.
+- **Files:** `src/lib/search/search-templates.ts`
+
+## 2026-11-20 · Tag chip fixes from tester tags reasons
+- **Why:** Testers added a tags reason on 41 v3 phase 1 reports: kids tags for a 47th, Girl without Boy, Boy/Girl on a 35th or 60th, one or two chips for small searches (coraline, voucher, ticket), no style chips, Quinceañera/Crown/Dress on "birthday reminder", "4 pics of baby" with no photo, and "thank you" ignored in "birthday thank you invitation".
+- **What:** Chips fall back to the first 40 results also when no card has every asked detail; separate kinds never decide birthday chips; Boy/Girl as a pair (partner needs 2 cards) and Men/Women from age 18 or "adult"; minCountSmall 3 when 40 results or fewer; one slot for the best style; resolve-intent keeps the rules photo and second occasion when the AI left them out. Result order of 50 approved queries unchanged beyond the earlier intended changes.
+- **Files:** `src/lib/search/suggest-tags.ts`, `src/lib/search/search-templates.ts`, `src/lib/search/ranking.ts`, `src/lib/search/resolve-intent.ts`
+
 ## 2026-11-20 · Nine ranking fixes from v3 phase 1 Major feedback
 - **Why:** Tester Major feedback on v3 phase 1: red-with-some-black cards among black results, debutante balls for "maroon birthday", 5th/6th tags and 4th-10th cards for "toddler", 70th/80th and 80th/100th cards mixed, birthdays with no age before nearby ages for "free debutante", farm cards before the sheep card and Eid/Passover cards for "shawn the sheep, party, kids", and every 11th birthday before trampoline cards for "eleventh birthday at jump place".
 - **What:** 1) Main color: first color tag 2 points, second 1. 2) RANKING.separateKinds (quinceanera, debut) rank after other cards of a plain birthday unless their age is asked. 3) Tag chips fall back to the first 40 results (RANKING.suggestions.focusFallback), not the whole tier. 4) Equally far ages stay together, younger first (age_tie). 5) "toddler" is an audience of ages 1-3. 6) An implied age ranks other birthdays nearest first, then no age (the tier still puts the occasion first). 7) An asked element in a card first two element tags ranks first (RANKING.mainElementTags). 8) The rules kids birthday (and its confidence) wins over a themed_party/birthday/none AI reading. 9) New trampoline element ("jump place", "jump party", "bounce house"…); a rules element is added to the AI reading only when the AI kept its exact name as a keyword ("gift card" is not a gift). Also: the parent-occasion check is built lazily (an unused parameter broke weak kids occasions). Checked on 50 approved v3 phase 1 queries: unchanged except the intended ones.

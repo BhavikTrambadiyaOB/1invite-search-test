@@ -126,6 +126,11 @@ export async function suggestTags({
     photo: filters.photo ? 1 : 0,
   }
 
+  // Few results ("teen birthday coraline", "birthday voucher"): a chip of 3 cards is still a real choice.
+  const minCount = total <= cfg.focusFallback ? cfg.minCountSmall : cfg.minCount
+  // A 35th or "adult" birthday is for men and women, not boys and girls (same tags, other words).
+  const adult = (askedAge ?? 0) >= cfg.adultAge || intent.audience === 'adults'
+  const genderLabel = (v: FacetValue) => (adult ? (v.id === 'girl' ? 'Women' : 'Men') : v.label)
   const candidates: Candidate[] = []
   const maxFit = Math.max(0, ...facets.occasion.map((o) => o.fit ?? 0))
   const consider = (group: TagGroup, values: FacetValue[], label: (v: FacetValue) => string = (v) => v.label) => {
@@ -135,7 +140,7 @@ export async function suggestTags({
       const key = `${group}:${v.id}`
       if (taken.has(key) || skip.has(key)) continue
       const share = v.count / total
-      if (v.count < cfg.minCount || share < cfg.minShare || share > cfg.maxShare) continue
+      if (v.count < minCount || share < cfg.minShare || share > cfg.maxShare) continue
       const catalogShare = Math.max(counts.get(key) ?? v.count, 1) / catalogTotal
       const lift = Math.min(share / catalogShare, cfg.maxLift)
       // Bigger groups are more useful, but a chip that keeps nearly everything narrows nothing.
@@ -157,7 +162,8 @@ export async function suggestTags({
   )
   if (browsing) return pick(candidates, cfg.max, cfg.max)
   if (!askedAge) consider('milestones', facets.milestones, (v) => ordinal(Number(v.id)))
-  consider('genders', facets.gender.filter((g) => g.id === 'girl' || g.id === 'boy'))
+  const genders = facets.gender.filter((g) => g.id === 'girl' || g.id === 'boy')
+  consider('genders', genders, genderLabel)
   consider('themes', facets.themes)
   consider('assets', facets.assets)
   consider('photo', facets.photo.filter((p) => p.id === 'with'))
@@ -166,7 +172,25 @@ export async function suggestTags({
   consider('styles', facets.styles)
   consider('colors', facets.colors)
 
-  return pick(candidates, cfg.max)
+  return pairGenders(pick(candidates, cfg.max), genders, genderLabel, cfg.max)
+}
+
+/**
+ * Boy and Girl come as a pair or not at all: "Girl" alone reads as if there were no boy cards. The partner is
+ * added (in place of the last chip when the row is full) when it has a few cards (minCountInGroup).
+ */
+function pairGenders(chosen: SuggestedTag[], genders: FacetValue[], label: (v: FacetValue) => string, max: number): SuggestedTag[] {
+  const shown = chosen.filter((t) => t.group === 'genders')
+  if (shown.length !== 1) return chosen
+  const partner = genders.find((g) => g.id !== shown[0].value && g.count >= RANKING.suggestions.minCountInGroup)
+  if (!partner) return chosen.filter((t) => t.group !== 'genders')
+  const tag: SuggestedTag = { group: 'genders', value: partner.id, label: label(partner), count: partner.count }
+  const at = chosen.indexOf(shown[0]) + 1
+  const out = [...chosen.slice(0, at), tag, ...chosen.slice(at)]
+  if (out.length <= max) return out
+  // Drop the last chip that is not one of the pair.
+  const last = out.findLastIndex((t) => t.group !== 'genders')
+  return out.filter((_, i) => i !== last)
 }
 
 /** Best first, a few per kind, one chip per meaning. */
@@ -197,6 +221,17 @@ function pick(candidates: Candidate[], max: number, maxPerGroup?: number): Sugge
     if (c.group === 'occasions') chosenOccasions.add(c.value)
     perGroup.set(c.group, (perGroup.get(c.group) ?? 0) + 1)
     chosen.push({ group: c.group, value: c.value, label: c.label, count: c.count })
+  }
+  // Styles score lowest (they are on many cards), so a full row rarely has one. Keep one place for the best
+  // style that qualified, in place of the weakest detail chip (occasions, ages and boy/girl stay).
+  const style = candidates.find((c) => c.group === 'styles' && !wordsOf(c.label).some((w) => seenWords.has(w)))
+  if (style && !chosen.some((t) => t.group === 'styles') && (maxPerGroup ?? cfg.groups.styles.max) > 0) {
+    const tag = { group: style.group, value: style.value, label: style.label, count: style.count }
+    if (chosen.length < max) chosen.push(tag)
+    else {
+      const weakest = chosen.findLastIndex((t) => !['occasions', 'milestones', 'genders'].includes(t.group))
+      if (weakest >= 0) chosen.splice(weakest, 1, tag)
+    }
   }
   return chosen
 }

@@ -5,6 +5,11 @@ paths:
 
 # Src Components Search How It Works decisions
 
+## 2026-11-20 · How it works covers the new tag chip rules
+- **Why:** The page must match the tag chip fixes from the tester tags reasons.
+- **What:** Tag chips section explains the near-results fallback for unmatched details, separate kinds, gender pair and Men/Women, the smaller card count for small searches and the style slot; reading rules list the facts kept from the rules (photo, second occasion, exact element).
+- **Files:** `src/components/search/how-it-works/explainer.tsx`
+
 ## 2026-11-20 · How it works covers the nine v3 ranking fixes
 - **Why:** The page must match the current search after the v3 phase 1 Major fixes.
 - **What:** Explained separate kinds, element listed first, first color tag counting most, age ties and implied ages, toddler 1-3, kids party over AI, and chips from the first 40 results; added Main element and Separate kinds to the numbers table.

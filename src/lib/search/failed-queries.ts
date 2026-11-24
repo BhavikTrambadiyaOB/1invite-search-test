@@ -1,4 +1,5 @@
 import { db } from '../db'
+import { tagMatchCounts } from './failed-query-checks'
 
 /**
  * Failed-query detection.
@@ -16,9 +17,17 @@ import { db } from '../db'
  *   bounce             the user previewed results but closed them quickly every time
  *   no_click           the user saw results and clicked nothing
  *
+ * The exact-match reasons use the larger of two counts: search's own exact count, and the templates fitting every
+ * understood tag (failed-query-checks.ts). Search's count also asks typed words already covered by a tag
+ * ("toddler" = toddlers audience, "holy cow" = cow element) to be printed on the card; when only that wording is
+ * missing, the visit gets the note wording_only instead of "no exact match". Notes never make a visit fail.
+ *
  * Queries are ranked by visits × failure rate and labelled:
- *   content_gap  the query was understood, but templates are missing or not good enough
  *   search_gap   the query was not understood (unknown words, or the user removed part of the reading)
+ *   not_chosen   understood, enough exact matches and a strong best match, yet the user did not pick one
+ *                (failed only by no click, bounce or searching again): taste or order, not missing templates
+ *   content_gap  understood, but templates are missing or not good enough
+ *   no_gap       the search worked: no visit failed (only listed with includePassed)
  */
 export const FAILURE_RULES = {
   lowRelevance: 0.4,
@@ -31,6 +40,12 @@ export const FAILURE_RULES = {
   visitMinutes: 30,
 }
 
+/** no_gap: the search worked (listed only with includePassed). */
+export type GapType = 'content_gap' | 'search_gap' | 'not_chosen' | 'no_gap'
+
+/** Reasons that only say what the user did; results themselves were fine. */
+const BEHAVIOR_REASONS = new Set(['no_click', 'bounce', 'reformulated'])
+
 export type FailedQuery = {
   normalizedQuery: string
   exampleQuery: string
@@ -40,7 +55,11 @@ export type FailedQuery = {
   failureRate: number
   priority: number
   reasons: Record<string, number>
-  gapType: 'content_gap' | 'search_gap'
+  gapType: GapType
+  /** Templates fitting every understood tag (typed words left out); null when not recounted. */
+  tagExact: number | null
+  /** Some visit missed exact matches only because typed words are not printed on the fitting cards. */
+  wordingOnly: boolean
   avgResults: number
   /** Average results fitting every asked detail; null for searches logged before this was recorded. */
   avgExact: number | null
@@ -53,9 +72,61 @@ export type FailedQuery = {
   unknownWords: string[]
   exampleIntent: Record<string, unknown> | null
   lastSearchedAt: string
+  /** The latest report run that searched it (search_report), null for searches made on the search page only. */
+  report: { id: number; version: number; phase: number } | null
+  /** Test-sheet case types of the query in the report versions searched ("Theme-Based Search"); empty when none. */
+  caseTypes: string[]
 }
 
-export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; to: Date; limit?: number | null }) {
+/** Which searches to judge: every one, only those made on the search page, or one report run (version / phase). */
+export type FailedQuerySource = { live?: boolean; version?: number | null; phase?: number | null }
+
+/** A logs filter on search_log `l` for the source; $v, $p and $live are the placeholders of its three values. */
+function sourceSql(v: string, p: string, live: string) {
+  return `(not ${live} or l.report_id is null)
+    and ((${v}::int is null and ${p}::int is null) or exists (
+      select 1 from search_report r
+       where r.id = l.report_id and (${v}::int is null or r.version = ${v}) and (${p}::int is null or r.phase = ${p})))`
+}
+
+export async function getFailedQueries({
+  from = new Date(0),
+  to = new Date(Date.now() + 60_000),
+  limit = 100,
+  source = {},
+  includePassed = false,
+}: {
+  from?: Date
+  to?: Date
+  limit?: number | null
+  source?: FailedQuerySource
+  /** Also list searches that worked (no failed visit), with the gap type no_gap: to check a whole report run. */
+  includePassed?: boolean
+} = {}) {
+  const sourceValues = [source.version ?? null, source.phase ?? null, source.live === true]
+  // Recount by understood tags the queries whose search found too few exact matches.
+  const { rows: thin } = await db.query<{ normalized_query: string; intent: Record<string, unknown> | null }>(
+    `select distinct on (normalized_query) normalized_query, intent
+       from search_log l
+      where created_at >= $1 and created_at < $2 and normalized_query <> ''
+        and result_count > 0 and exact_count < $3 and ${sourceSql('$4', '$5', '$6')}
+      order by normalized_query, created_at desc`,
+    [from, to, FAILURE_RULES.fewExactMatches, ...sourceValues],
+  )
+  // Case types from the imported test sheets, through the report each logged search belongs to.
+  const { rows: caseRows } = await db.query<{ normalized_query: string; case_types: string[] }>(
+    `select l.normalized_query, array_agg(distinct i.case_type order by i.case_type) as case_types
+       from search_log l
+       join search_report rp on rp.id = l.report_id
+       join search_report_import i on i.version = rp.version and i.normalized_query = rp.normalized_query and i.case_type <> ''
+      where l.created_at >= $1 and l.created_at < $2 and ${sourceSql('$3', '$4', '$5')}
+      group by l.normalized_query`,
+    [from, to, ...sourceValues],
+  )
+  const caseTypesByQuery = new Map(caseRows.map((r) => [r.normalized_query, r.case_types]))
+  const tagCounts = await tagMatchCounts(new Map(thin.map((r) => [r.normalized_query, r.intent])))
+  const tagExactByQuery = Object.fromEntries([...tagCounts].filter(([, c]) => c !== null))
+
   const { rows } = await db.query(
     `with logs as (
        select l.*,
@@ -63,7 +134,7 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
               case when lag(l.created_at) over w is null
                      or l.created_at - lag(l.created_at) over w > make_interval(mins => $7) then 1 else 0 end as starts_visit
          from search_log l
-        where l.created_at >= $1 and l.created_at < $2 and l.normalized_query <> ''
+        where l.created_at >= $1 and l.created_at < $2 and l.normalized_query <> '' and ${sourceSql('$10', '$11', '$12')}
        window w as (partition by l.session_id, l.normalized_query order by l.created_at)
      ),
      numbered as (
@@ -82,7 +153,10 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
               (array_agg(partial_count order by created_at))[1] as partial_count,
               (array_agg(occasion_only_count order by created_at))[1] as occasion_only_count,
               (array_agg(top_score order by created_at))[1] as top_score,
-              bool_or(cardinality(ignored) > 0) as removed_reading
+              bool_or(cardinality(ignored) > 0) as removed_reading,
+              ($9::jsonb ->> normalized_query)::int as tag_exact,
+              -- A report capture: nobody saw the results, so what the user did (click, bounce…) is not judged.
+              max(report_id) as report_id
          from numbered
         group by session_id, normalized_query, visit_no
      ),
@@ -98,19 +172,24 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
               ) as reformulated
          from visits v
      ),
+     counted as (
+       -- Exact matches: search's count, or the understood-tag recount when that is higher.
+       select *, greatest(exact_count, coalesce(tag_exact, exact_count)) as best_exact from acted
+     ),
      judged as (
        select *,
+              (exact_count < $8 and tag_exact > exact_count and result_count > 0) as wording_only,
               array_remove(array[
                 case when result_count = 0 then 'zero_results' end,
-                case when result_count > 0 and exact_count = 0 then 'no_exact_match' end,
-                case when exact_count > 0 and exact_count < $8 then 'few_exact_matches' end,
+                case when result_count > 0 and best_exact = 0 then 'no_exact_match' end,
+                case when best_exact > 0 and best_exact < $8 then 'few_exact_matches' end,
                 case when result_count > 0 and coalesce(top_score, 0) < $4 then 'low_relevance' end,
                 case when removed_reading then 'reading_removed' end,
                 case when reformulated then 'reformulated' end,
                 case when clicks > 0 and bounces >= clicks then 'bounce' end,
-                case when clicks = 0 and result_count > 0 and ended_at < now() - make_interval(mins => $5) then 'no_click' end
+                case when clicks = 0 and result_count > 0 and report_id is null and ended_at < now() - make_interval(mins => $5) then 'no_click' end
               ], null) as reasons
-         from acted
+         from counted
      ),
      per_query as (
        select normalized_query,
@@ -125,6 +204,9 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
               avg(occasion_only_count)::real as avg_occasion_only,
               avg(top_score)::real as avg_relevance,
               bool_or(removed_reading and not opened) as removed_reading,
+              bool_or(wording_only and not opened) as wording_only,
+              max(tag_exact) as tag_exact,
+              (array_agg(report_id order by started_at desc) filter (where report_id is not null))[1] as report_id,
               max(ended_at) as last_searched_at
          from judged
         group by normalized_query
@@ -134,15 +216,16 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
          select normalized_query, r, count(*) c from judged, unnest(reasons) r where not opened group by normalized_query, r
        ) x group by normalized_query
      )
-     select p.*, coalesce(rc.reasons, '{}') as reasons,
+     select p.*, coalesce(rc.reasons, '{}') as reasons, sr.version as report_version, sr.phase as report_phase,
             p.failures::real / p.searches as failure_rate, p.searches * (p.failures::real / p.searches) as priority
        from per_query p left join reason_counts rc using (normalized_query)
-      where p.failures > 0
+       left join search_report sr on sr.id = p.report_id
+      where (p.failures > 0 or $13)
       order by priority desc, searches desc, last_searched_at desc
       limit $6`,
     [
       from, to, FAILURE_RULES.reformulateWithinSeconds, FAILURE_RULES.lowRelevance, FAILURE_RULES.settleMinutes, limit,
-      FAILURE_RULES.visitMinutes, FAILURE_RULES.fewExactMatches,
+      FAILURE_RULES.visitMinutes, FAILURE_RULES.fewExactMatches, JSON.stringify(tagExactByQuery), ...sourceValues, includePassed,
     ],
   )
 
@@ -168,6 +251,13 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
       (!!intent.occasion || !!intent.milestone || !!intent.format || !!intent.docType || !!intent.language ||
         !!intent.hasPhoto || !!intent.gender ||
         ['themes', 'assets', 'styles', 'colors', 'moods', 'alsoOccasions'].some(has))
+    const reasons = r.reasons as Record<string, number>
+    const searchGap = !understood || words.length > 0 || r.removed_reading
+    const onlyBehavior = Object.keys(reasons).every((k) => BEHAVIOR_REASONS.has(k))
+    const strongBest = r.avg_relevance !== null && Number(r.avg_relevance) >= FAILURE_RULES.lowRelevance
+    const gapType: GapType = r.failures === 0
+      ? 'no_gap'
+      : searchGap ? 'search_gap' : onlyBehavior && strongBest ? 'not_chosen' : 'content_gap'
     return {
       normalizedQuery: r.normalized_query,
       exampleQuery: r.example_query,
@@ -175,8 +265,10 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
       failures: r.failures,
       failureRate: Number(r.failure_rate.toFixed(3)),
       priority: Number(r.priority.toFixed(3)),
-      reasons: r.reasons,
-      gapType: understood && words.length === 0 && !r.removed_reading ? 'content_gap' : 'search_gap',
+      reasons,
+      gapType,
+      tagExact: r.tag_exact === null || r.tag_exact === undefined ? null : Number(r.tag_exact),
+      wordingOnly: r.wording_only === true,
       avgResults: Number(r.avg_results),
       avgExact: r.avg_exact === null ? null : Number(r.avg_exact),
       avgRelevance: r.avg_relevance === null ? null : Number(r.avg_relevance),
@@ -186,6 +278,8 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
       unknownWords: words,
       exampleIntent: intent,
       lastSearchedAt: new Date(r.last_searched_at).toISOString(),
+      report: r.report_id ? { id: Number(r.report_id), version: r.report_version, phase: r.report_phase } : null,
+      caseTypes: caseTypesByQuery.get(r.normalized_query) ?? [],
     }
   })
 }
@@ -194,7 +288,7 @@ export async function getFailedQueries({ from, to, limit = 100 }: { from: Date; 
 export async function saveDailyReport(day: Date) {
   const from = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()))
   const to = new Date(from.getTime() + 86_400_000)
-  const report = await getFailedQueries({ from, to, limit: 1000 })
+  const report = await getFailedQueries({ from, to, limit: 1000, source: { live: true } })
   const dayStr = from.toISOString().slice(0, 10)
 
   const client = await db.connect()
@@ -233,4 +327,24 @@ export async function saveDailyReport(day: Date) {
     client.release()
   }
   return { day: dayStr, queries: report.length }
+}
+
+/** Case types of the imported test sheets (of one version, when given), for the failed-queries filter. */
+export async function getReportCaseTypes(version: number | null) {
+  const { rows } = await db.query<{ case_type: string }>(
+    `select distinct case_type from search_report_import
+      where case_type <> '' and ($1::int is null or version = $1) order by case_type`,
+    [version],
+  )
+  return rows.map((r) => r.case_type)
+}
+
+/** Report runs whose searches are logged: each version with its phases, for the failed-queries filters. */
+export async function getLoggedReportRuns() {
+  const { rows } = await db.query<{ version: number; phases: number[] }>(
+    `select r.version, array_agg(distinct r.phase order by r.phase) phases
+       from search_log l join search_report r on r.id = l.report_id
+      group by r.version order by r.version`,
+  )
+  return rows
 }

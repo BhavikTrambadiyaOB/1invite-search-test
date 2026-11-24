@@ -13,6 +13,7 @@ const ITEMS: NavItem[] = [
   { href: '/search/report', label: 'Search report', phase: '1' },
   { href: '/search/insights', label: 'Failed queries', phase: '2' },
   { href: '/search/coverage', label: 'Tag coverage' },
+  { href: '/search/gender-review', label: 'Gender review' },
   { href: '/search/how-it-works', label: 'How it works' },
 ]
 
@@ -22,6 +23,7 @@ const HREF_BY_ACTIVE = {
   failed: '/search/insights',
   templates: '/templates',
   coverage: '/search/coverage',
+  gender: '/search/gender-review',
   how: '/search/how-it-works',
 } as const
 

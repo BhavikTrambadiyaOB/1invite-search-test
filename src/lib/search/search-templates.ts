@@ -367,7 +367,8 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
   const colorStrength = [
     // First tag 2 points, second 1: an all-black card before a red card with some black.
     ...askedColors.map((c) => `greatest(${RANKING.mainColorTags} + 1 - coalesce(array_position(colors, ${p.add(c)}), 2147483647), 0)`),
-    ...askedShades.map((s) => `coalesce(array_to_string(color_shades, '|') ~* ${p.add(s.shades)}, false)::int`),
+    // The asked shade ("mauve", "sky blue") is more specific than its color, so it counts as much as a first tag.
+    ...askedShades.map((s) => `(coalesce(array_to_string(color_shades, '|') ~* ${p.add(s.shades)}, false)::int * ${RANKING.mainColorTags})`),
   ].join(' + ') || '0'
   // "adult birthday" (18–64), "teenager birthday" (13–19): a printed age decides when the card has one, so a
   // 90th is not adult; otherwise the card's audience tag does.
@@ -669,14 +670,18 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
     -- birthday" suggests within dinosaur birthdays. Too few of them (four 5th anniversaries) → the asked occasion.
     -- With an asked occasion, only its cards count: cards added to fill a thin page ("pizza kitty party" has 3
     -- kitty party cards, filled with kids birthdays) never decide the tags.
-    base as (select * from final where ${occDef ? 'same_occasion' : 'true'}),
+    -- Quinceañera and Debut cards never decide the tags of a plain "birthday" (they rank after the others too).
+    base as (select * from final where ${occDef ? 'same_occasion' : 'true'} and separate_kind = 0),
     best as (select max(tier) mt, max(detail_hits) mh from base),
     top_rows as (select f.* from base f, best b where f.tier = b.mt and f.detail_hits = b.mh),
+    -- The cards that match everything asked, when there are enough. Otherwise (three 65th cards, or no card has
+    -- the asked "47th" or "effect") the first results, never the whole occasion.
+    whole as (select (select count(*) from top_rows) >= ${RANKING.suggestions.minResults} and (select mh from best) >= ${detailChecks.length} as ok),
     focus as (
-      select * from top_rows where (select count(*) from top_rows) >= ${RANKING.suggestions.minResults}
+      select * from top_rows where (select ok from whole)
       union all
       select * from (
-        select f.* from base f, best b where f.tier = b.mt and (select count(*) from top_rows) < ${RANKING.suggestions.minResults}
+        select f.* from base f, best b where f.tier = b.mt and not (select ok from whole)
          order by ${RANK_ORDER} limit ${RANKING.suggestions.focusFallback}) near
     )
     select

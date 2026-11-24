@@ -23,14 +23,14 @@ export async function resolveIntent(query: string): Promise<SearchIntent> {
   // Intents cached before moods, language and photo were added lack those fields.
   if (hit) {
     const intent = { ...hit, moods: hit.moods ?? [], alsoOccasions: hit.alsoOccasions ?? [], language: hit.language ?? null, hasPhoto: hit.hasPhoto ?? null } as SearchIntent
-    return { ...intent, ...kidsOccasion(rules, intent), assets: withRuleAssets(rules, intent), audience: rules.audience, language: askedLanguage(query, rules, intent.language) }
+    return { ...withRuleReading(rules, { ...intent, ...kidsOccasion(rules, intent), assets: withRuleAssets(rules, intent) }), audience: rules.audience, language: askedLanguage(query, rules, intent.language) }
   }
 
   try {
     // Loaded only when needed, so search without AI never imports the AI stack.
     const { aiParseQuery } = await import('./ai-parse-query')
     const read = await aiParseQuery(query, rules)
-    const intent = { ...read, ...kidsOccasion(rules, read), assets: withRuleAssets(rules, read), language: askedLanguage(query, rules, read.language) }
+    const intent = { ...withRuleReading(rules, { ...read, ...kidsOccasion(rules, read), assets: withRuleAssets(rules, read) }), language: askedLanguage(query, rules, read.language) }
     await db.query(
       `insert into search_query_cache (normalized_query, intent, source) values ($1, $2, 'ai')
        on conflict (normalized_query) do update set intent = excluded.intent, created_at = now()`,
@@ -66,6 +66,17 @@ function withRuleAssets(rules: SearchIntent, ai: SearchIntent): string[] {
   const keywords = new Set((ai.keywords ?? []).map((k) => k.toLowerCase()))
   const named = rules.assets.filter((id) => ASSET_BY_ID.get(id)?.phrases.some((phrase) => keywords.has(phrase)))
   return [...new Set([...(ai.assets ?? []), ...named])]
+}
+
+/**
+ * Plain facts the rules read for sure are kept when the AI left them out: a photo ("4 pics of baby") and a second
+ * occasion next to the same main one ("birthday thank you invitation": birthday cards that say thank you).
+ */
+function withRuleReading(rules: SearchIntent, ai: SearchIntent): SearchIntent {
+  const also = rules.occasion && rules.occasion === ai.occasion
+    ? rules.alsoOccasions.filter((o) => o !== ai.occasion && !(ai.alsoOccasions ?? []).includes(o))
+    : []
+  return { ...ai, hasPhoto: ai.hasPhoto ?? rules.hasPhoto, alsoOccasions: [...(ai.alsoOccasions ?? []), ...also] }
 }
 
 /**

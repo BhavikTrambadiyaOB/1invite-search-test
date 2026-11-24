@@ -21,4 +21,13 @@ Before and after a ranking or parsing change, run SEARCH_AI_ENABLED=false npm ru
 Return an empty page only when the query was understood or a filter was picked. A typed query that understood nothing and found nothing gets the browse list with fallback set, and callers log it as zero results.
 
 ## Rules readings the AI cannot override
-In resolve-intent, keep the rules reading for audience, a kids birthday over a broad AI party reading (with the rules confidence), and an element whose exact name the AI left as a keyword. Build every SQL parameter only where it is used.
+In resolve-intent, keep the rules reading for audience, a kids birthday over a broad AI party reading (with the rules confidence), an element whose exact name the AI left as a keyword, a photo the AI left out, and a second occasion next to the same main one. Build every SQL parameter only where it is used.
+
+## Tag chips come from the near results
+Suggest chips from the cards that match everything asked when there are enough; otherwise from the first RANKING.suggestions.focusFallback results, never the whole occasion, and never from separate kinds (Quinceañera, Debut) of a plain birthday. Boy and Girl show as a pair or not at all, read Men / Women from RANKING.suggestions.adultAge, and one place is kept for a style chip.
+
+## Reviewed gender wins over enrichment
+A gender reviewed and applied in template_gender_review overrides the tagger; enrichment saves must keep it.
+
+## Failed-query report never changes search
+Judge and label searches in failed-queries.ts / failed-query-checks.ts only; do not change search ranking, exact counts or template data to fix a report label.

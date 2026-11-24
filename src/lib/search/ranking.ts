@@ -87,6 +87,10 @@ export const RANKING = {
      * results in ranking order (65th, then nearby ages), never from the whole occasion (kids birthdays for a 65th).
      */
     focusFallback: 40,
+    /** With this many results or fewer, a chip needs only minCountSmall cards ("teen birthday coraline"). */
+    minCountSmall: 3,
+    /** From this asked age ("35th", "adult"), the boy / girl chips read Men / Women. */
+    adultAge: 18,
     /** A chip must keep at least this many results and this share of them… */
     minCount: 5,
     /** After a group is chosen ("Parties"), its events need fewer cards: 3 Kitty Party cards are a real choice. */

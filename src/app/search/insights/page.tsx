@@ -19,28 +19,44 @@ import {
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { FAILURE_RULES, getFailedQueries, type FailedQuery } from '@/lib/search/failed-queries'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { FAILURE_RULES, getFailedQueries, getLoggedReportRuns, getReportCaseTypes, type FailedQuery, type GapType } from '@/lib/search/failed-queries'
+import {
+  applyFailedQueryFilters,
+  COLUMNS,
+  GAPS,
+  failedQueryFiltersFromParams,
+  failedQueryHref,
+  OPERATORS,
+  SORTS,
+  sourceOf,
+} from '@/lib/search/failed-query-filters'
+import { explainCounts, missingTagHints } from '@/lib/search/failed-query-checks'
+import { CountExplanationDialog } from '@/components/search/count-explanation'
 
 export const metadata: Metadata = {
   title: 'Failed Queries',
   description: 'Searches where users did not find a template.',
 }
 
-const RANGES = [1, 7, 30, 90] as const
-const PAGE_SIZE = 10
-const MIN_VISIT_OPTIONS = [1, 2, 5, 10] as const
-const SORT_OPTIONS = ['priority', 'visits', 'recent'] as const
+const PAGE_SIZE = 50
 
-const REASON_LABELS: Record<string, string> = {
-  zero_results: 'No results',
-  no_exact_match: 'No exact match',
-  few_exact_matches: 'Few exact matches',
-  low_relevance: 'Weak matches',
-  reading_removed: 'Reading removed',
-  reformulated: 'Searched again',
-  bounce: 'Quick bounce',
-  no_click: 'No click',
+
+const GAP_LABELS: Record<GapType, string> = {
+  content_gap: 'Content gap',
+  search_gap: 'Search gap',
+  not_chosen: 'Not chosen',
+  no_gap: 'No gap',
+}
+const GAP_BADGE: Record<GapType, 'default' | 'secondary' | 'outline'> = {
+  content_gap: 'default',
+  search_gap: 'secondary',
+  not_chosen: 'outline',
+  no_gap: 'outline',
+}
+/** "No gap" in green, so passed searches stand apart from the failed ones. */
+const GAP_CLASS: Partial<Record<GapType, string>> = {
+  no_gap: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
 }
 
 function formatAverage(value: number | null) {
@@ -52,6 +68,12 @@ function collectionDirection(query: FailedQuery) {
   if (query.gapType === 'search_gap') {
     const terms = query.unknownWords.length > 0 ? query.unknownWords.join(', ') : 'the query wording'
     return `Teach search to recognize ${terms}.`
+  }
+  if (query.gapType === 'no_gap') {
+    return `Nothing to do: the search worked (${FAILURE_RULES.fewExactMatches}+ exact matches and a strong best card).`
+  }
+  if (query.gapType === 'not_chosen') {
+    return 'Search found fitting templates and ranked a strong match first, but the user did not pick one. Review the designs and their order (taste), not the collection size.'
   }
 
   const intent = query.exampleIntent
@@ -80,7 +102,8 @@ function collectionDirection(query: FailedQuery) {
   if (intent?.hasPhoto === false) add('without photo')
 
   const collectionFocus = [...new Set(focus)].slice(0, 5).join(', ') || query.exampleQuery
-  const directMatches = query.avgDirect
+  // The understood-tag recount, when higher: typed words like "toddler" are not printed on cards that fit.
+  const directMatches = query.avgDirect === null ? null : Math.max(query.avgDirect, query.tagExact ?? 0)
   const coverageCount = directMatches ?? query.avgExact
   if (coverageCount === null) {
     return `Check coverage for ${collectionFocus}; exact-match data is unavailable for this period.`
@@ -103,7 +126,7 @@ function collectionDirection(query: FailedQuery) {
 
 export default function InsightsPage({ searchParams }: PageProps<'/search/insights'>) {
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:py-8">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:py-8">
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <SearchNav active="failed" />
@@ -183,6 +206,28 @@ export default function InsightsPage({ searchParams }: PageProps<'/search/insigh
                         Search was not understood; a synonym or search rule may be needed.
                       </dd>
                     </div>
+                    <div>
+                      <dt className="text-sm font-medium">Not chosen</dt>
+                      <dd className="text-muted-foreground text-sm">
+                        Search understood the query, found {FAILURE_RULES.fewExactMatches}+ exact matches and a strong best
+                        match, yet the user did not click, bounced or searched again. Review taste and order, not coverage.
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium">“by tags” and “Typed words not on cards”</dt>
+                      <dd className="text-muted-foreground text-sm">
+                        Direct also asks typed words to be printed on the card, even ones a tag already covers (“toddler”
+                        = Toddlers audience, “holy cow” = Cow element). The page recounts with those words left to their
+                        tag; when that finds enough cards, the search is not marked “No exact match”.
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium">Missing tag (amber note)</dt>
+                      <dd className="text-muted-foreground text-sm">
+                        Cards whose name says an asked theme or element but which are not tagged with it. A data to-do;
+                        nothing is changed automatically.
+                      </dd>
+                    </div>
                     <div className="sm:col-span-2">
                       <dt className="text-sm font-medium">Collection direction</dt>
                       <dd className="text-muted-foreground text-sm">
@@ -213,133 +258,151 @@ async function Report({ searchParams }: { searchParams: PageProps<'/search/insig
   const param = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
   // The report covers the time up to now, so it is rendered per request, never prerendered.
   await connection()
-  const requested = Number(param(sp.days))
-  const days = (RANGES as readonly number[]).includes(requested) ? requested : 7
-  const query = param(sp.q)?.trim().slice(0, 200) ?? ''
-  const gap = param(sp.gap)
-  const gapFilter = gap === 'content_gap' || gap === 'search_gap' ? gap : ''
-  const rawMinVisits = Number(param(sp.minVisits))
-  const minVisits = (MIN_VISIT_OPTIONS as readonly number[]).includes(rawMinVisits) ? rawMinVisits : 1
-  const rawSort = param(sp.sort)
-  const sort = (SORT_OPTIONS as readonly string[]).includes(rawSort ?? '') ? rawSort! : 'priority'
-  const rawPage = Number(param(sp.page))
-  const requestedPage = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1
-  const to = new Date()
-  const from = new Date(to.getTime() - days * 86_400_000)
-
-  const rows = await getFailedQueries({ from, to, limit: null })
-  const filteredRows = rows
-    .filter((row) =>
-      (!query || row.exampleQuery.toLocaleLowerCase().includes(query.toLocaleLowerCase())) &&
-      (!gapFilter || row.gapType === gapFilter) &&
-      row.searches >= minVisits,
-    )
-  const sortedRows = [...filteredRows].sort((a, b) => {
-    if (sort === 'visits') return b.searches - a.searches || b.priority - a.priority
-    if (sort === 'recent') return b.lastSearchedAt.localeCompare(a.lastSearchedAt) || b.priority - a.priority
-    return b.priority - a.priority || b.searches - a.searches || b.lastSearchedAt.localeCompare(a.lastSearchedAt)
-  })
+  const filters = failedQueryFiltersFromParams((key) => param(sp[key]))
+  const [rows, runs, caseTypes] = await Promise.all([
+    getFailedQueries({ limit: null, source: sourceOf(filters), includePassed: true }),
+    getLoggedReportRuns(),
+    getReportCaseTypes(typeof filters.version === 'number' ? filters.version : null),
+  ])
+  const sortedRows = applyFailedQueryFilters(rows, filters)
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE))
-  const page = Math.min(requestedPage, totalPages)
+  const page = Math.min(filters.page, totalPages)
   const pageRows = sortedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const paramsFor = (nextPage?: number) => {
-    const params = new URLSearchParams()
-    params.set('days', String(days))
-    if (query) params.set('q', query)
-    if (gapFilter) params.set('gap', gapFilter)
-    if (minVisits > 1) params.set('minVisits', String(minVisits))
-    if (sort !== 'priority') params.set('sort', sort)
-    if (nextPage && nextPage > 1) params.set('page', String(nextPage))
-    return `/search/insights?${params.toString()}`
-  }
-  const hasFilters = !!query || !!gapFilter || minVisits > 1 || sort !== 'priority'
+  // Report-only: asked themes and elements some cards name without the tag (the data team's to-do).
+  const [hints, explanations] = await Promise.all([
+    Promise.all(pageRows.map((row) => missingTagHints(row.exampleIntent))),
+    Promise.all(pageRows.map((row) => explainCounts(row.exampleIntent, row.normalizedQuery))),
+  ])
+  const phases = [...new Set(
+    runs.filter((r) => filters.version === 'all' || r.version === filters.version).flatMap((r) => r.phases),
+  )].sort((a, b) => a - b)
+  const hasFilters = failedQueryHref({ ...filters, page: 1 }) !== '/search/insights'
+  const selectClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm'
 
   return (
     <div className="flex flex-col gap-5">
       <form
         action="/search/insights"
         method="get"
-        className="grid gap-3 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-6"
+        className="flex flex-col gap-3 rounded-xl border p-4"
         aria-label="Filter failed queries"
       >
-        <label className="flex flex-col gap-1.5 text-sm font-medium">
-          Date range
-          <select
-            name="days"
-            defaultValue={String(days)}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            {RANGES.map((range) => (
-              <option key={range} value={range}>
-                {range === 1 ? 'Last 24 hours' : `Last ${range} days`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm font-medium">
-          Query
-          <Input name="q" type="search" defaultValue={query} placeholder="Filter queries" maxLength={200} />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm font-medium">
-          Gap type
-          <select
-            name="gap"
-            defaultValue={gapFilter}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="">All gaps</option>
-            <option value="content_gap">Content gap</option>
-            <option value="search_gap">Search gap</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm font-medium">
-          Minimum visits
-          <select
-            name="minVisits"
-            defaultValue={String(minVisits)}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            {MIN_VISIT_OPTIONS.map((count) => (
-              <option key={count} value={count}>
-                {count === 1 ? 'Any visits' : `${count}+ visits`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm font-medium">
-          Sort by
-          <select
-            name="sort"
-            defaultValue={sort}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="priority">Priority</option>
-            <option value="visits">Most visits</option>
-            <option value="recent">Recently searched</option>
-          </select>
-        </label>
-        <div className="flex items-end gap-2">
-          <Button type="submit">Apply filters</Button>
-          {hasFilters && (
-            <Button asChild variant="outline">
-              <Link href={`/search/insights?days=${days}`}>Clear</Link>
-            </Button>
-          )}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Search query
+            <Input name="q" type="search" defaultValue={filters.query} placeholder="Filter queries" maxLength={200} />
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Version
+            <select name="v" defaultValue={String(filters.version)} className={selectClass}>
+              <option value="all">All searches</option>
+              <option value="live">Search page only</option>
+              {runs.map((r) => (
+                <option key={r.version} value={r.version}>
+                  v{r.version} report
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Phase
+            <select name="phase" defaultValue={filters.phase ? String(filters.phase) : ''} className={selectClass}>
+              <option value="">All phases</option>
+              {phases.map((phase) => (
+                <option key={phase} value={phase}>
+                  Phase {phase}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Case type
+            <select name="case" defaultValue={filters.caseType ?? ''} className={selectClass}>
+              <option value="">All case types</option>
+              {caseTypes.map((caseType) => (
+                <option key={caseType} value={caseType}>
+                  {caseType}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Gap
+            <select name="gap" defaultValue={filters.gap} className={selectClass}>
+              {Object.entries(GAPS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Sort by
+            <select name="sort" defaultValue={filters.sort} className={selectClass}>
+              {Object.entries(SORTS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1.5 text-sm font-medium">Number condition</legend>
+          <div className="flex flex-wrap items-center gap-2">
+            <select name="col" defaultValue={filters.condition?.column ?? ''} aria-label="Column" className={`${selectClass} sm:w-48`}>
+              <option value="">Any column</option>
+              {Object.entries(COLUMNS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <select name="op" defaultValue={filters.condition?.operator ?? '='} aria-label="Comparison" className="border-input bg-background h-9 w-20 rounded-md border px-3 text-sm">
+              {OPERATORS.map((op) => (
+                <option key={op} value={op}>
+                  {op}
+                </option>
+              ))}
+            </select>
+            <Input
+              name="val"
+              type="number"
+              step="any"
+              defaultValue={filters.condition ? String(filters.condition.value) : ''}
+              placeholder="Number"
+              aria-label="Number"
+              className="w-28"
+            />
+            <div className="ml-auto flex gap-2">
+              <Button type="submit">Apply filters</Button>
+              {hasFilters && (
+                <Button asChild variant="outline">
+                  <Link href="/search/insights">Clear</Link>
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="text-muted-foreground text-xs">
+            For example Direct = 0, Templates &gt;= 100 or Top relevance &lt; 50. Report searches are judged on their
+            results only: nobody clicked them, so No click and Quick bounce do not apply.
+          </p>
+        </fieldset>
       </form>
       {pageRows.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-10 text-center text-sm">
           {hasFilters
             ? 'No failed queries match these filters. Adjust or clear the filters above.'
-            : 'No failed queries in this period. Searches made on the search page appear here.'}
+            : 'No failed queries yet. Searches made on the search page and report captures appear here.'}
         </p>
       ) : (
         <TooltipProvider>
-          <div className="overflow-x-auto rounded-lg border">
+          {/* Header row and Query column stay in view while scrolling the 50 rows (down or sideways). */}
+          <div className="max-h-[78vh] overflow-auto rounded-lg border">
             <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+            <thead className="bg-muted text-muted-foreground sticky top-0 z-20 text-left text-xs shadow-[0_1px_0_var(--border)]">
               <tr>
-                <th className="px-3 py-2 font-medium">Query</th>
+                <th className="bg-muted sticky left-0 z-30 min-w-56 px-3 py-2 font-medium shadow-[1px_0_0_var(--border)]">Query</th>
                 <th className="px-3 py-2 font-medium">Gap</th>
                 <th className="px-3 py-2 text-right font-medium">Visits</th>
                 <th className="px-3 py-2 text-right font-medium">Templates</th>
@@ -351,53 +414,65 @@ async function Report({ searchParams }: { searchParams: PageProps<'/search/insig
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((r) => (
+              {pageRows.map((r, i) => (
                 <tr key={r.normalizedQuery} className="border-t align-top">
-                  <td className="px-3 py-2">
+                  <td className="bg-background sticky left-0 z-10 min-w-56 px-3 py-2 shadow-[1px_0_0_var(--border)]">
                     <Link
                       href={`/search?q=${encodeURIComponent(r.exampleQuery)}&debug=1`}
                       className="font-medium underline-offset-4 hover:underline"
                     >
                       {r.exampleQuery}
                     </Link>
+                    {r.report && (
+                      <Link href={`/search/report/${r.report.id}`} className="text-muted-foreground block text-xs hover:underline">
+                        v{r.report.version} · Phase {r.report.phase} report
+                      </Link>
+                    )}
+                    {r.caseTypes.length > 0 && (
+                      <p className="text-muted-foreground text-xs">Case type: {r.caseTypes.join(', ')}</p>
+                    )}
                     {r.unknownWords.length > 0 && (
                       <p className="text-muted-foreground text-xs">Unknown words: {r.unknownWords.join(', ')}</p>
                     )}
+                    {hints[i].map((h) => (
+                      <p key={`${h.kind}-${h.id}`} className="text-xs text-amber-700 dark:text-amber-400">
+                        {h.count} {h.count === 1 ? 'card names' : 'cards name'} {h.label} but {h.count === 1 ? 'is' : 'are'} not
+                        tagged with this {h.kind}
+                      </p>
+                    ))}
                   </td>
                   <td className="px-3 py-2">
-                    <Badge variant={r.gapType === 'content_gap' ? 'default' : 'secondary'}>
-                      {r.gapType === 'content_gap' ? 'Content gap' : 'Search gap'}
+                    <Badge variant={GAP_BADGE[r.gapType]} className={GAP_CLASS[r.gapType]}>
+                      {GAP_LABELS[r.gapType]}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.searches}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgResults)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgDirect)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatAverage(r.avgDirect)}
+                    {r.tagExact !== null && r.avgDirect !== null && r.tagExact > r.avgDirect && (
+                      <span className="text-muted-foreground block text-xs whitespace-nowrap">{r.tagExact} by tags</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgPartial)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatAverage(r.avgOccasionOnly)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {r.avgRelevance === null ? '–' : `${Math.round(r.avgRelevance * 100)}%`}
                   </td>
                   <td className="px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon-xs" aria-label="Collection direction">
-                            <InfoIcon />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-64 whitespace-normal text-left">
-                          <span className="font-semibold">Collection direction</span>
-                          <p>{collectionDirection(r)}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(r.reasons).map(([reason, count]) => (
-                          <span key={reason} className="bg-muted rounded px-1.5 py-0.5 text-xs">
-                            {REASON_LABELS[reason] ?? reason} · {count}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                    <CountExplanationDialog
+                      explanation={explanations[i]}
+                      row={{
+                        query: r.exampleQuery,
+                        gapLabel: GAP_LABELS[r.gapType],
+                        visits: r.searches,
+                        reasons: r.reasons,
+                        wordingOnly: r.wordingOnly,
+                        tagExact: r.tagExact,
+                        direction: collectionDirection(r),
+                        logged: { templates: r.avgResults, direct: r.avgDirect, partial: r.avgPartial, occasionOnly: r.avgOccasionOnly },
+                      }}
+                    />
                   </td>
                 </tr>
               ))}
@@ -417,7 +492,7 @@ async function Report({ searchParams }: { searchParams: PageProps<'/search/insig
           page={page}
           totalPages={totalPages}
           label="Failed query pages"
-          hrefForPage={(nextPage) => paramsFor(nextPage)}
+          hrefForPage={(nextPage) => failedQueryHref(filters, nextPage)}
         />
       </div>
     </div>

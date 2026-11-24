@@ -956,6 +956,11 @@ export function Explainer() {
                 or Passover cards with a sheep. “toddler” also asks for ages 1–3.
               </li>
               <li>
+                Plain facts the rules read are kept when the AI leaves them out: a photo (“4 pics of baby”), a second
+                occasion (“birthday thank you invitation”: birthday cards that say thank you), and an element named
+                exactly (“jump place” → trampoline).
+              </li>
+              <li>
                 “save the date” next to another occasion is that occasion’s save-the-date: “save the date kid birthday”
                 finds kids birthday save-the-dates, not wedding ones. “reminder” also means a save-the-date.
               </li>
@@ -1623,7 +1628,9 @@ export function Explainer() {
             <h3>Tag chips: which kind to show</h3>
             <p className={c('sub')}>
               Counted live from the labels of the best matches. When fewer than 8 cards match everything asked (three
-              65th cards), from the first 40 results instead, never from the whole occasion. No AI and no click data.
+              65th cards), or nothing has an asked detail (“47th”, “effect”), from the first 40 results instead, never
+              from the whole occasion. Quinceañera and Debut cards never decide the chips of a plain “birthday”. No AI
+              and no click data.
             </p>
           </div>
         </div>
@@ -1634,6 +1641,14 @@ export function Explainer() {
             <b>occasions</b> → <b>details</b>.
           </span>
         </div>
+        <ul
+          className={c('small')}
+          style={{ margin: '0 0 12px', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px', listStyle: 'disc' } as CSSProperties}
+        >
+          <li>Boy and Girl come as a pair or not at all. For an adult age (18th and up, or “adult”) they read Men / Women.</li>
+          <li>With 40 results or fewer, a chip needs 3 cards instead of 5, so a small search still gets choices.</li>
+          <li>One place is kept for the best style chip, since styles otherwise score lowest and rarely show.</li>
+        </ul>
 
         <div className={c('cases')}>
           <div className={c('case')}>

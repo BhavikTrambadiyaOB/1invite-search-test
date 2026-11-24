@@ -1,6 +1,7 @@
 import { db } from '../db'
 import { normalizeQuery } from './parse-query'
 import { searchTemplates } from './search-templates'
+import { logReportSearch, searchLogValues, type SearchLogValues } from './report-search-log'
 import type {
   ReportDetail,
   ReportFeedback,
@@ -304,6 +305,8 @@ function currentItem(item: Awaited<ReturnType<typeof searchTemplates>>['results'
 export type ReportCapture = {
   snapshot: ReportSnapshot | null
   error: string | null
+  /** Current search only: its numbers for the search log (failed-queries page). */
+  log?: SearchLogValues | null
 }
 
 /** Calls the live production search API and captures its first 40 results. */
@@ -414,6 +417,7 @@ export async function captureCurrentReport(query: string): Promise<ReportCapture
         })),
       },
       error: null,
+      log: searchLogValues(first),
     }
   } catch (error) {
     return { snapshot: null, error: error instanceof Error ? error.message : 'Current search failed' }
@@ -460,6 +464,8 @@ export async function saveSearchReport(
       version,
     ],
   )
+  // The current search is logged too, so the failed-queries page can list this report run's failed searches.
+  if (current.log) await logReportSearch(rows[0].id, query.trim(), current.log)
   return rows[0].id
 }
 

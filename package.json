@@ -15,6 +15,7 @@
     "search:enrich-ai": "tsx --env-file=.env scripts/enrich-ai.ts",
     "search:report": "tsx --env-file=.env scripts/report-failed-queries.ts",
     "search:report:snapshot": "tsx --env-file=.env scripts/search-report.ts",
+    "search:report:log": "tsx --env-file=.env scripts/log-report-searches.ts",
     "search:coverage": "tsx --env-file=.env scripts/query-coverage.ts",
     "search:eval": "tsx --env-file=.env scripts/eval-search.ts",
     "mcp:db": "tsx --env-file=.env scripts/mcp/db-readonly.ts",
@@ -24,7 +25,8 @@
     "search:clear-cache": "tsx --env-file=.env scripts/clear-search-cache.ts",
     "search:snapshot": "tsx --env-file=.env scripts/search-regression.ts snapshot",
     "search:compare": "tsx --env-file=.env scripts/search-regression.ts compare",
-    "search:fix-data": "tsx --env-file=.env scripts/fix-search-data.ts"
+    "search:fix-data": "tsx --env-file=.env scripts/fix-search-data.ts",
+    "search:check-gender": "tsx --env-file=.env scripts/check-gender.ts"
   },
   "dependencies": {
     "@mastra/core": "^1.79.0",
