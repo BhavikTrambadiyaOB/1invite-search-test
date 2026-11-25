@@ -23,6 +23,7 @@
     "search:check": "tsx --env-file=.env scripts/check-test-set.ts",
     "search:embed": "tsx --env-file=.env scripts/embed-templates.ts",
     "search:clear-cache": "tsx --env-file=.env scripts/clear-search-cache.ts",
+    "search:fill-rsvp": "tsx --env-file=.env scripts/fill-prints-rsvp.ts",
     "search:snapshot": "tsx --env-file=.env scripts/search-regression.ts snapshot",
     "search:compare": "tsx --env-file=.env scripts/search-regression.ts compare",
     "search:fix-data": "tsx --env-file=.env scripts/fix-search-data.ts",

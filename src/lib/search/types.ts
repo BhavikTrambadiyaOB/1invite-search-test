@@ -52,6 +52,8 @@ export type SearchIntent = {
   /** true when the query asks for a photo card. */
   hasPhoto: boolean | null
   isFree: boolean | null
+  /** What the query says it does NOT want ("no photo", "non pro", "without balloons"); read by negation.ts. */
+  exclude?: SearchExclusions | null
   /** Words the parser did not map to the taxonomy; used for full-text matching. */
   keywords: string[]
   /** Words the parser could not understand at all (not in the taxonomy or the template vocabulary). */
@@ -179,4 +181,28 @@ export type SearchResponse = {
    * picked, so the results are the browse list instead of an empty page. The query and intent stay the user's.
    */
   fallback?: 'not_understood' | null
+}
+
+/**
+ * Parts of a query the person does not want ("without photo", "not pro", "no rsvp", "not twins", "no year",
+ * "without balloons"). Facts the data knows for sure hide cards; text-based and loose ones only rank them lower.
+ */
+export type SearchExclusions = {
+  /** No photo in the design (hides). */
+  photo: boolean
+  /** Not PRO: free cards only (hides, when Free / PRO filtering is on). */
+  pro: boolean
+  /** Not free: PRO cards only (hides, when Free / PRO filtering is on). */
+  free: boolean
+  /** No printed RSVP line (hides, from prints_rsvp). */
+  rsvp: boolean
+  /** Not a joint card for two or more people (ranks lower). */
+  joint: boolean
+  /** No printed age (ranks lower). */
+  printedAge: boolean
+  /** Tags to leave out: themes, elements and colors hide; styles rank lower. */
+  themes: string[]
+  assets: string[]
+  colors: string[]
+  styles: string[]
 }

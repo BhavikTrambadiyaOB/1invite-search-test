@@ -1,12 +1,50 @@
 import { db } from '../db'
 import { catalogExclusion } from './catalog-exclusion'
 import { keywordConcepts } from './keyword-concepts'
+import { isPriceFilterEnabled } from './features'
+import { hasExclusions, readNegations } from './negation'
 import { RANKING } from './ranking'
 import {
-  COLOR_BY_ID, DOC_TYPE_BY_ID, FORMAT_BY_ID, LANGUAGE_BY_ID, MOOD_BY_ID, JOINT_CARD_TEXT, JOINT_WORDS, NO_RSVP_QUERY, OCCASION_BY_ID, QUERY_AUDIENCES, RSVP_CARD_TEXT, STYLE_BY_ID,
+  COLOR_BY_ID, DOC_TYPE_BY_ID, FORMAT_BY_ID, LANGUAGE_BY_ID, MOOD_BY_ID, JOINT_CARD_TEXT, JOINT_WORDS, OCCASION_BY_ID, QUERY_AUDIENCES, STYLE_BY_ID,
 } from './taxonomy'
 import { ordinal, queryText } from './text'
-import { getVocabulary, labelFor, occasionFamilyFrom, phrasesFor, type Vocabulary } from './vocabulary'
+import type { SearchExclusions } from './types'
+import { getVocabulary, labelFor, learnedTerms, occasionFamilyFrom, phrasesFor, type Vocabulary } from './vocabulary'
+
+/** What a logged search did not want: its saved reading, or the query read again (searches logged before). */
+function exclusionsOf(intent: Intent, query: string, vocab: Vocabulary) {
+  const read = readNegations(query, learnedTerms(vocab))
+  const saved = intent.exclude as SearchExclusions | null | undefined
+  return { rest: read.rest, exclude: hasExclusions(saved) ? saved : read.exclude }
+}
+
+/** Plain labels of the exclusions that hide cards ("No photo", "No Balloon"). */
+function hiddenLabels(exclude: SearchExclusions | null, vocab: Vocabulary): string[] {
+  if (!hasExclusions(exclude)) return []
+  return [
+    ...(exclude.photo ? ['No photo'] : []),
+    ...(isPriceFilterEnabled() && exclude.pro ? ['Not PRO (free only)'] : []),
+    ...(isPriceFilterEnabled() && exclude.free ? ['Not free (PRO only)'] : []),
+    ...(exclude.rsvp ? ['No printed RSVP line'] : []),
+    ...exclude.themes.map((t) => `No ${labelFor(vocab, 'theme', t)}`),
+    ...exclude.assets.map((a) => `No ${labelFor(vocab, 'asset', a)}`),
+    ...exclude.colors.map((c) => `No ${COLOR_BY_ID.get(c)?.label ?? c}`),
+  ]
+}
+
+/** Exclusions that hide cards in search (photo, PRO / free, RSVP line, theme, element and color tags). */
+function hiddenConditions(exclude: SearchExclusions | null, p: Params): string[] {
+  if (!hasExclusions(exclude)) return []
+  const out: string[] = []
+  if (exclude.photo) out.push('not has_photo')
+  if (isPriceFilterEnabled() && exclude.pro) out.push('is_free')
+  if (isPriceFilterEnabled() && exclude.free) out.push('not is_free')
+  if (exclude.rsvp) out.push('not prints_rsvp')
+  if (exclude.themes.length) out.push(`not (themes && ${p.add(exclude.themes)}::text[])`)
+  if (exclude.assets.length) out.push(`not (assets && ${p.add(exclude.assets)}::text[])`)
+  if (exclude.colors.length) out.push(`not (colors && ${p.add(exclude.colors)}::text[])`)
+  return out
+}
 
 /**
  * Report-only checks for the failed-queries page. They read template data and never change search results.
@@ -73,8 +111,10 @@ type Part = { label: string; sql: string; typedWord: boolean; coveredBy: boolean
  * Every part of a logged reading search asks a card to have (besides the occasion), with a plain label: the same
  * tests search uses for its Direct count. Typed words count only next to an occasion or format, as in search.
  */
-function askedParts(intent: Intent, query: string, vocab: Vocabulary, p: Params, skipCovered = false): Part[] {
+function askedParts(intent: Intent, typed: string, vocab: Vocabulary, p: Params, skipCovered = false): Part[] {
   const parts: Part[] = []
+  // "1st birthday no photo": the words of what is not wanted are not asked for (search reads the rest only).
+  const { rest: query, exclude } = exclusionsOf(intent, typed, vocab)
   const add = (label: string, sql: string) => parts.push({ label, sql, typedWord: false, coveredBy: false })
   for (const also of list(intent.alsoOccasions)) add(`${labelFor(vocab, 'occasion', also)} (second occasion)`, inOccasions(p, vocab, also))
   if (typeof intent.milestone === 'number') add(`${ordinal(intent.milestone)} (age)`, `milestone = ${p.add(intent.milestone)}`)
@@ -112,17 +152,19 @@ function askedParts(intent: Intent, query: string, vocab: Vocabulary, p: Params,
   if (language) add(`${LANGUAGE_BY_ID.get(language)?.label ?? language} text`, `languages @> array[${p.add(language)}]::text[]`)
   for (const style of list(intent.styles)) add(`${labelFor(vocab, 'style', style)} (style)`, `styles @> array[${p.add(style)}]::text[]`)
   for (const mood of list(intent.moods)) add(`${MOOD_BY_ID.get(mood)?.label ?? mood} (mood)`, `moods @> array[${p.add(mood)}]::text[]`)
-  // Search's two word rules: "twins / joint" asks a card for two or more people, "without rsvp" a card that prints
-  // no reply line (and those words are then not looked for as text).
+  // Search's word rule: "twins / joint" asks a card for two or more people.
   const queryWords = new Set(query.split(' '))
   const asksJoint = JOINT_WORDS.some((w) => queryWords.has(w))
-  if (asksJoint) add('For two or more people (joint)', `(search_vector @@ ${tsAny(p, JOINT_WORDS)} or card_text ~* ${p.add(JOINT_CARD_TEXT)})`)
-  const asksNoRsvp = NO_RSVP_QUERY.test(query)
-  const isRsvpWord = (w: string) => asksNoRsvp && (/rsvp/.test(w) || ['without', 'no', 'non', 'skip'].includes(w))
-  if (asksNoRsvp) add('No RSVP line printed', `(coalesce(card_text, '') <> '' and card_text !~* ${p.add(RSVP_CARD_TEXT)})`)
+  // Built only where used: an unused parameter fails the query.
+  const jointSql = () => `(search_vector @@ ${tsAny(p, JOINT_WORDS)} or card_text ~* ${p.add(JOINT_CARD_TEXT)})`
+  if (asksJoint) add('For two or more people (joint)', jointSql())
+  // Exclusions that only rank lower are parts like any other ("not twins", "no year", "not so simple").
+  if (exclude?.joint) add('Not for two or more people (not joint)', `not ${jointSql()}`)
+  if (exclude?.printedAge) add('No printed age', 'milestone is null')
+  for (const style of exclude?.styles ?? []) add(`Not ${labelFor(vocab, 'style', style)} (style)`, `not (styles @> array[${p.add(style)}]::text[])`)
   if (text(intent.occasion) || format) {
     const covered = coveredWords(intent, vocab)
-    const keywords = list(intent.keywords).filter((k) => !k.split(' ').some(isRsvpWord))
+    const keywords = list(intent.keywords).filter((k) => !/rsvp/.test(k))
     for (const forms of keywordConcepts(query, asksJoint ? keywords.filter((k) => !JOINT_WORDS.includes(k)) : keywords)) {
       const coveredBy = words(forms).some((w) => covered.has(w))
       if (coveredBy && skipCovered) continue
@@ -137,6 +179,7 @@ function tagConditions(intent: Intent, query: string, vocab: Vocabulary, p: Para
   const occasion = text(intent.occasion)
   return [
     ...(occasion ? [inOccasions(p, vocab, occasion)] : []),
+    ...hiddenConditions(exclusionsOf(intent, query, vocab).exclude, p),
     ...askedParts(intent, query, vocab, p, true).map((part) => part.sql),
   ]
 }
@@ -159,6 +202,8 @@ export type CountExplanation = {
   direct: number
   /** Cards of the occasion with none of the parts (search's Occasion only). */
   occasionOnly: number
+  /** What the query left out, which search hides before counting ("No photo", "No printed RSVP line"). */
+  excluded: string[]
 }
 
 /**
@@ -175,6 +220,9 @@ export async function explainCounts(intent: Intent | null, query: string): Promi
   const gender = text(intent.gender)
   // Search never shows cards made for the other gender.
   if (gender === 'girl' || gender === 'boy') where.push(`coalesce(gender, 'neutral') <> ${p.add(gender === 'girl' ? 'boy' : 'girl')}`)
+  // Cards search hides for what the query does not want ("no photo", "non pro", "without rsvp") are not counted.
+  const excluded = exclusionsOf(intent, query, vocab).exclude
+  where.push(...hiddenConditions(excluded, p))
   const parts = askedParts(intent, query, vocab, p)
   const has = parts.map((part) => `coalesce(${part.sql}, false)`)
   const all = has.length ? has.join(' and ') : 'true'
@@ -203,6 +251,7 @@ export async function explainCounts(intent: Intent | null, query: string): Promi
     })),
     direct: r.direct,
     occasionOnly: occasion ? r.occasion_only : 0,
+    excluded: hiddenLabels(excluded, vocab),
   }
 }
 

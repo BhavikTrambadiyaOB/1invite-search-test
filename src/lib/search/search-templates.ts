@@ -6,7 +6,7 @@ import { isAiEnabled } from './ai-config'
 import { hasEmbeddingColumn, queryEmbedding } from './embeddings'
 import { isDateWord, normalizeQuery, stripQueryNoise, understoodAnything } from './parse-query'
 import { resolveIntent } from './resolve-intent'
-import { getVocabulary, labelFor, occasionAncestorsFrom, occasionFamilyFrom, phrasesFor, type VocabKind } from './vocabulary'
+import { getVocabulary, labelFor, learnedTerms, occasionAncestorsFrom, occasionFamilyFrom, phrasesFor, type VocabKind } from './vocabulary'
 import {
   COLOR_BY_ID,
   GENDER_BY_ID,
@@ -22,8 +22,6 @@ import {
   JOINT_CARD_TEXT,
   JOINT_WORDS,
   NICHE_DESIGNS,
-  NO_RSVP_QUERY,
-  RSVP_CARD_TEXT,
   OCCASION_AGES,
   QUERY_AUDIENCES,
   RESERVED_OCCASION_WORDS,
@@ -32,6 +30,7 @@ import {
   type SimpleDef,
 } from './taxonomy'
 import { keywordConcepts } from './keyword-concepts'
+import { hasExclusions, readNegations } from './negation'
 import { activeFilterCount } from './url'
 
 /** Gendered words that name the event, not the look ("quinceanera", "bride"): their gender stays a tie-break. */
@@ -184,10 +183,14 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
   const priceFilter = isPriceFilterEnabled()
   const filters = withPriceFilterSetting(rawFilters)
   // A pasted chat prefix ("[27/05, 1:14 pm] name: ") is not part of what the person wants.
-  const query = stripQueryNoise(rawQuery)
+  const typedQuery = stripQueryNoise(rawQuery)
+  // "1st birthday no photo": what is not wanted is set aside first, so the rest is read and matched without it.
+  const negation = readNegations(typedQuery, learnedTerms(await getVocabulary()))
+  const query = negation.rest
+  const exclude = negation.exclude
   const read = withoutIgnored(await resolveIntent(query), ignore)
   // Date parts ("10 juin", "june 7") never have to appear on a design.
-  const intent = { ...read, isFree: priceFilter ? read.isFree : null, keywords: read.keywords.filter((k) => !k.split(' ').every((w) => isDateWord(w) || /^\d+(st|nd|rd|th)?$/.test(w))) }
+  const intent = { ...read, exclude, isFree: priceFilter ? read.isFree : null, keywords: read.keywords.filter((k) => !k.split(' ').every((w) => isDateWord(w) || /^\d+(st|nd|rd|th)?$/.test(w))) }
   const p = new Params()
 
   // Meaning-based matching, only when AI is on and template embeddings exist.
@@ -384,11 +387,21 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
   const queryWordSet = new Set(normalizeQuery(query).split(' '))
   const asksJoint = JOINT_WORDS.some((w) => queryWordSet.has(w))
   if (asksJoint) detail(`(search_vector @@ ${tsAny(p, JOINT_WORDS)} or card_text ~* ${p.add(JOINT_CARD_TEXT)})`, true)
-  // "birthday without rsvp": cards whose printed text has no reply line first. The words "without" and "rsvp" are
-  // then not matched as text, or cards that print RSVP would rank first.
-  const asksNoRsvp = NO_RSVP_QUERY.test(normalizeQuery(query))
-  const isRsvpWord = (w: string) => asksNoRsvp && (/rsvp/.test(w) || ['without', 'no', 'non', 'skip'].includes(w))
-  if (asksNoRsvp) detail(`(coalesce(card_text, '') <> '' and card_text !~* ${p.add(RSVP_CARD_TEXT)})`)
+  // What the query does not want (negation.ts). Facts the data knows for sure hide cards: a photo, PRO or free, a
+  // printed RSVP line (read from every text layer, contact lines too) and theme, element and color tags. A joint
+  // card, a printed age and a style are read from text or are loose, so those cards only rank lower.
+  if (hasExclusions(exclude)) {
+    if (exclude.photo) where.push('not has_photo')
+    if (priceFilter && exclude.pro) where.push('is_free')
+    if (priceFilter && exclude.free) where.push('not is_free')
+    if (exclude.rsvp) where.push('not prints_rsvp')
+    if (exclude.themes.length) where.push(`not (themes && ${p.add(exclude.themes)}::text[])`)
+    if (exclude.assets.length) where.push(`not (assets && ${p.add(exclude.assets)}::text[])`)
+    if (exclude.colors.length) where.push(`not (colors && ${p.add(exclude.colors)}::text[])`)
+    if (exclude.joint) detail(`not (search_vector @@ ${tsAny(p, JOINT_WORDS)} or card_text ~* ${p.add(JOINT_CARD_TEXT)})`)
+    if (exclude.printedAge) detail('(milestone is null)')
+    if (exclude.styles.length) detail(`not (styles && ${p.add(exclude.styles)}::text[])`)
+  }
   if (intent.format) {
     const condition = `(format = ${p.add(intent.format)} or search_vector @@ ${tsAny(p, defsPhrases(FORMAT_BY_ID.get(intent.format)))})`
     if (formatAnchor) {
@@ -426,11 +439,11 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
   // Words in other scripts count as typed words too, so "عيد مبارك" is never read as browsing everything.
   // Dates and times ("november 21", "5:00") are left out: their numbers would match 21st birthdays and printed times.
   const allWords = queryText(withoutDatesAndTimes(query)).split(' ')
-  const queryWords = allWords.filter((w) => w && !['invitation', 'invitations', 'template', 'card', 'invite'].includes(w) && !isDateWord(w) && !isRsvpWord(w))
+  const queryWords = allWords.filter((w) => w && !['invitation', 'invitations', 'template', 'card', 'invite'].includes(w) && !isDateWord(w))
   const textQuery = orTsQuery(queryWords)
   // When nothing in the query was understood (AI may return an empty reading for "zxqv blorf"),
   // the typed words themselves must match, so search never falls back to every template.
-  const keywords = (structured || intent.keywords.length > 0 ? intent.keywords : queryWords).filter((k) => !k.split(' ').some(isRsvpWord))
+  const keywords = (structured || intent.keywords.length > 0 ? intent.keywords : queryWords)
   const tsq = textQuery ? `to_tsquery('english', search_unaccent(${p.add(textQuery)}))` : null
 
   // Wording the vocabulary has no term for ("timeline", "barn") still says what is wanted, with synonyms
@@ -895,7 +908,7 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
     : suggested
   return {
     searchId: null,
-    query,
+    query: typedQuery,
     intent,
     appliedOccasion: strictOccasion?.id ?? null,
     total: row.total,

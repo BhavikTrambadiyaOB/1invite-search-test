@@ -211,12 +211,23 @@ function Parts({ explanation: e }: { explanation: CountExplanation }) {
     <Section step={3} title="What search understood, part by part">
       <div className="flex flex-wrap gap-1.5">
         {e.occasion ? <Badge>{e.occasion} · occasion</Badge> : <Badge variant="outline">No occasion</Badge>}
+        {e.excluded.map((label) => (
+          <Badge key={label} variant="outline" className="border-dashed font-normal">
+            {label} · left out
+          </Badge>
+        ))}
         {e.parts.map((part) => (
           <Badge key={part.label} variant="secondary" className="font-normal">
             {part.label}
           </Badge>
         ))}
       </div>
+      {e.excluded.length > 0 && (
+        <p className="text-muted-foreground text-xs">
+          Left out: the query says it does not want these, so search hides those cards and every number here counts
+          without them.
+        </p>
+      )}
       {e.parts.length === 0 ? (
         <p className="text-muted-foreground text-sm">Nothing besides the occasion, so every card of the occasion counts as Direct.</p>
       ) : (

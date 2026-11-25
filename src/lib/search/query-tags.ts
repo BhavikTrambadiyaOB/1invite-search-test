@@ -1,4 +1,5 @@
 import { isPriceFilterEnabled } from './features'
+import { hasExclusions, readNegations } from './negation'
 import { parseQuery } from './parse-query'
 import { ordinal } from './text'
 import {
@@ -50,6 +51,20 @@ export function queryTagsFromIntent(intent: SearchIntent, vocab: Vocabulary): Qu
   // "free" / "pro" are only tags while Free / PRO filtering is on.
   if (isPriceFilterEnabled() && intent.isFree === true) add('price', 'free', 'Free')
   if (isPriceFilterEnabled() && intent.isFree === false) add('price', 'premium', 'PRO')
+  // What the query does not want ("no photo", "non pro", "without balloons").
+  const ex = intent.exclude
+  if (hasExclusions(ex)) {
+    if (ex.photo) add('exclude', 'photo', 'No photo')
+    if (isPriceFilterEnabled() && ex.pro) add('exclude', 'pro', 'Not PRO')
+    if (isPriceFilterEnabled() && ex.free) add('exclude', 'free', 'Not free')
+    if (ex.rsvp) add('exclude', 'rsvp', 'No RSVP')
+    if (ex.joint) add('exclude', 'joint', 'Not joint')
+    if (ex.printedAge) add('exclude', 'age', 'No printed age')
+    for (const theme of ex.themes) add('exclude', `theme:${theme}`, `No ${labelFor(vocab, 'theme', theme)}`)
+    for (const asset of ex.assets) add('exclude', `asset:${asset}`, `No ${labelFor(vocab, 'asset', asset)}`)
+    for (const color of ex.colors) add('exclude', `color:${color}`, `No ${COLOR_BY_ID.get(color)?.label ?? color}`)
+    for (const style of ex.styles) add('exclude', `style:${style}`, `Not ${labelFor(vocab, 'style', style)}`)
+  }
 
   return tags
 }
@@ -57,7 +72,8 @@ export function queryTagsFromIntent(intent: SearchIntent, vocab: Vocabulary): Qu
 /** The tags a stored report query is understood as, without AI or a search run. */
 export async function queryTags(query: string): Promise<QueryTag[]> {
   const vocab = await getVocabulary()
-  return queryTagsFromIntent(parseQuery(query, learnedTerms(vocab)), vocab)
+  const { rest, exclude } = readNegations(query, learnedTerms(vocab))
+  return queryTagsFromIntent({ ...parseQuery(rest, learnedTerms(vocab)), exclude }, vocab)
 }
 
 /** Opens the query in search and applies the selected tag as an explicit filter when supported. */

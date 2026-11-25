@@ -12,7 +12,7 @@ Take occasions, formats, themes, styles, colors and document types only from tax
 Gate optional search features with helpers in src/lib/search/features.ts that read a SEARCH_*_ENABLED env variable, default off, and document it in .env.example. Apply the same helper to query reading, filters and sidebar facets.
 
 ## Sorting ladder order
-Order results by sidebar picks, occasion tier, separate kinds last (Quinceañera, Debut under a plain birthday), asked themes and elements (tagged before word-only), element listed first, the rest of the design (colors, clear styles, photo, audience, joint, design-word gender), main color and shade (first tag counts most), typed free/pro, milestone (asked or implied; nearest, then equally far ages together, younger first), other details, niche, then score. Keep RANK_ORDER as the one copy of this order. A printed age never outranks the design, no other detail stands in for an asked theme or element, and only a sidebar pick hides cards; a typed free/pro only ranks.
+Order results by sidebar picks, occasion tier, separate kinds last (Quinceañera, Debut under a plain birthday), asked themes and elements (tagged before word-only), element listed first, the rest of the design (colors, clear styles, photo, audience, joint, design-word gender), main color and shade (first tag counts most), typed free/pro, milestone (asked or implied; nearest, then equally far ages together, younger first), other details, niche, then score. Keep RANK_ORDER as the one copy of this order. A printed age never outranks the design, no other detail stands in for an asked theme or element, and only a sidebar pick or a negated sure fact (negation.ts) hides cards; a typed free/pro only ranks.
 
 ## Check ranking changes with snapshots
 Before and after a ranking or parsing change, run SEARCH_AI_ENABLED=false npm run search:snapshot -- <name> and compare: target queries improve, unrelated queries keep their top 24. Never spend AI credit or call live search for this check.
@@ -31,3 +31,6 @@ A gender reviewed and applied in template_gender_review overrides the tagger; en
 
 ## Failed-query report never changes search
 Judge and label searches in failed-queries.ts / failed-query-checks.ts only; do not change search ranking, exact counts or template data to fix a report label.
+
+## Negations are read before the query
+Read "without / no / not / non…" only in negation.ts: it removes the negated words before the query is read and returns exclusions. A negated photo, PRO/free, RSVP line, theme, element or color hides cards; a negated joint card, printed age or style only ranks lower. Leave the words alone when the next one is an occasion, a card word or card wording ("no gifts"). Answer "prints RSVP" from template_search.prints_rsvp, never card_text.

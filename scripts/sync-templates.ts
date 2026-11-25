@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto'
 import { db } from '@/lib/db'
-import { extractCardText, hasPhotoSlot } from '@/lib/search/card-text'
+import { extractCardText, hasPhotoSlot, printsRsvp } from '@/lib/search/card-text'
 
 const BATCH = 500
 
@@ -70,6 +70,7 @@ async function main() {
         is_portrait: row.is_portrait === null ? null : row.is_portrait !== 0,
         is_featured: row.is_featured === 1,
         photo_slot: hasPhotoSlot(row.json_data),
+        prints_rsvp: printsRsvp(row.json_data),
         created_at: row.created_at,
         source_hash: sourceHash,
       }
@@ -77,21 +78,22 @@ async function main() {
 
     const result = await db.query(
       `insert into template_search
-         (template_id, name, tags, card_text, preview_url, is_free, is_portrait, is_featured, photo_slot, created_at, source_hash, synced_at)
+         (template_id, name, tags, card_text, preview_url, is_free, is_portrait, is_featured, photo_slot, prints_rsvp, created_at, source_hash, synced_at)
        select * , now() from jsonb_to_recordset($1::jsonb) as r(
          template_id int, name text, tags text[], card_text text, preview_url text,
-         is_free boolean, is_portrait boolean, is_featured boolean, photo_slot boolean, created_at timestamptz, source_hash text)
+         is_free boolean, is_portrait boolean, is_featured boolean, photo_slot boolean, prints_rsvp boolean, created_at timestamptz, source_hash text)
        on conflict (template_id) do update set
          name = excluded.name, tags = excluded.tags, card_text = excluded.card_text,
          preview_url = excluded.preview_url, is_free = excluded.is_free, is_portrait = excluded.is_portrait,
-         is_featured = excluded.is_featured, photo_slot = excluded.photo_slot,
+         is_featured = excluded.is_featured, photo_slot = excluded.photo_slot, prints_rsvp = excluded.prints_rsvp,
          has_photo = template_search.has_photo or excluded.photo_slot, created_at = excluded.created_at,
          source_hash = excluded.source_hash, synced_at = now()
        where template_search.source_hash is distinct from excluded.source_hash
           or template_search.is_free is distinct from excluded.is_free
           or template_search.is_featured is distinct from excluded.is_featured
           or template_search.is_portrait is distinct from excluded.is_portrait
-          or template_search.photo_slot is distinct from excluded.photo_slot`,
+          or template_search.photo_slot is distinct from excluded.photo_slot
+          or template_search.prints_rsvp is distinct from excluded.prints_rsvp`,
       [JSON.stringify(records)],
     )
     changed += result.rowCount ?? 0

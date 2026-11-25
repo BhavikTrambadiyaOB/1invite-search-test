@@ -320,13 +320,6 @@ function seniorPhrases() {
  * "Sophia & Joseph's", "Arieta & Richard are turning 10", "Barb is 6 & John is 4", "Richard's 2nd and Sophia's 5th".
  */
 export const JOINT_WORDS = ['joint', 'twin', 'twins', 'sibling', 'siblings', 'double', 'triple', 'combined']
-/**
- * "without rsvp", "no rsvp", "rsvp free": the printed card should have no reply line. Every 1invites invitation can
- * still collect replies online; this is about the text on the design.
- */
-export const NO_RSVP_QUERY = /\b(?:without|no|non|skip)\s+(?:an?\s+|the\s+)?rsvp\b|\brsvp\s*(?:free|less)\b/
-/** A reply line printed on a card (Postgres regex, case-insensitive): "RSVP", "Reply by", "Regrets only". */
-export const RSVP_CARD_TEXT = 'rsvp|r\\.s\\.v\\.p|reply by|respond by|regrets only|please confirm|kindly reply'
 
 /** Words that make a birthday a kids birthday ("joint kids party, birthday", "birthday for children"). */
 export const KIDS_WORDS = ['kid', 'kids', 'child', 'children', 'childrens', 'toddler', 'toddlers']

@@ -108,3 +108,22 @@ export function hasPhotoSlot(raw: string | null | undefined): boolean {
   }
   return false
 }
+
+/** A printed reply line: "RSVP", "R.S.V.P", "Reply by", "Regrets only". */
+const RSVP_LINE = /\b(?:rsvp|r\.s\.v\.p|reply by|respond by|regrets only|please confirm|kindly reply)\b/i
+
+/**
+ * True when any text layer prints a reply line, contact lines included: "RSVP to +1 012 345 6789" is dropped
+ * from the card text as a phone placeholder, yet the card still prints RSVP.
+ */
+export function printsRsvp(raw: string | null | undefined): boolean {
+  const pages = parseTemplateJson(raw)
+  if (!pages) return false
+  for (const page of Object.values(pages)) {
+    if (!page || typeof page !== 'object') continue
+    for (const layer of [...(page.text_json ?? []), ...(page.curved_text_json ?? [])]) {
+      if (layer && typeof layer.text === 'string' && RSVP_LINE.test(layer.text)) return true
+    }
+  }
+  return false
+}
