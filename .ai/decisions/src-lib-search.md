@@ -7,6 +7,11 @@ paths:
 
 # Src Lib Search decisions
 
+## 2026-11-25 · Seniors audience: old lady, old men, senior citizen rank 60+ birthdays first
+- **Why:** Tester feedback: "old lady birthday party" and "senior citizen birthday party" showed cards with no age or kids cards. The user asked that it work for men and women and other words too (old men, old gentlemen, old brother), not only lady.
+- **What:** New query audience Seniors (ages 60–110), read from old/elderly/aged/senior/retired plus a person word (lady, men, gentlemen, brother, mother…), senior citizen, elderly, old age, retiree, grandma/grandpa/granny/nani/dadi. Like Toddlers it only ranks: 60th–100th birthdays first, and the gender word still sets the gender. "old" or "senior" alone, older brother, elder sister and old friends are not read (5 years old, old school, senior prom). Seniors counts as adult for the Men/Women chips. Snapshot: only the target queries changed (old lady 1265→48 direct, grandpa 608→13, top 10 all 60+).
+- **Files:** `src/lib/search/taxonomy.ts`, `src/lib/search/suggest-tags.ts`
+
 ## 2026-11-24 · Failed queries: case type filter
 - **Why:** User wants to check failed and passed report queries by test-sheet case type, as on the Search report page.
 - **What:** Each failed-query row gets the case types of its query from search_report_import (same version as its report, matched by normalized query) and shows them under the query; a Case type filter lists the chosen version types (all versions when none). Also fixed a duplicate React key when a theme and an element share an id (rainbow).

@@ -294,7 +294,25 @@ export const QUERY_AUDIENCES: (SimpleDef & { ages: [number, number] })[] = [
   { id: 'teens', label: 'Teens', ages: [13, 19], phrases: ['teen', 'teens', 'teenager', 'teenagers', 'teenage', 'tween', 'tweens'] },
   // A toddler is 1 to 3: "toddler birthday" shows 1st to 3rd birthdays first, not every kids birthday.
   { id: 'toddlers', label: 'Toddlers', ages: [1, 3], phrases: ['toddler', 'toddlers'] },
+  // "old lady", "elderly man", "senior citizen", "grandpa": a 60th to 100th birthday first, for men and women alike
+  // (the gender word still sets the gender). "old" and "senior" alone are not enough: "5 years old", "old school",
+  // "old hollywood", "senior prom", "high school senior" are not about older people, nor are "older brother",
+  // "elder sister" (an older sibling) and "old friends" (long-time friends).
+  { id: 'seniors', label: 'Seniors', ages: [60, 110], phrases: seniorPhrases() },
 ]
+
+function seniorPhrases() {
+  const people = [
+    'lady', 'ladies', 'woman', 'women', 'man', 'men', 'gentleman', 'gentlemen', 'guy', 'guys', 'person', 'people',
+    'folks', 'mother', 'mom', 'mum', 'father', 'dad', 'brother', 'sister', 'aunt', 'uncle', 'couple', 'grandma', 'grandpa', 'grandmother', 'grandfather', 'parent', 'parents', 'relative', 'relatives',
+  ]
+  return [
+    ...['old', 'elderly', 'aged', 'senior', 'retired'].flatMap((word) => people.map((p) => `${word} ${p}`)),
+    'senior citizen', 'senior citizens', 'elderly', 'old age', 'old aged', 'oldies', 'oldie',
+    'retiree', 'retirees', 'pensioner', 'pensioners', 'golden age', 'golden years', 'grandparent', 'grandparents',
+    'grandma', 'grandpa', 'grandmother', 'grandfather', 'granny', 'grandmom', 'granddad', 'grandad', 'nani', 'dadi',
+  ]
+}
 
 /**
  * A joint event: one card for two or more people ("joint birthday", "twins birthday"). Cards say so in words

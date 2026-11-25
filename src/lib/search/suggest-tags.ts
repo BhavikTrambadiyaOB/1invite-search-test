@@ -129,7 +129,7 @@ export async function suggestTags({
   // Few results ("teen birthday coraline", "birthday voucher"): a chip of 3 cards is still a real choice.
   const minCount = total <= cfg.focusFallback ? cfg.minCountSmall : cfg.minCount
   // A 35th or "adult" birthday is for men and women, not boys and girls (same tags, other words).
-  const adult = (askedAge ?? 0) >= cfg.adultAge || intent.audience === 'adults'
+  const adult = (askedAge ?? 0) >= cfg.adultAge || intent.audience === 'adults' || intent.audience === 'seniors'
   const genderLabel = (v: FacetValue) => (adult ? (v.id === 'girl' ? 'Women' : 'Men') : v.label)
   const candidates: Candidate[] = []
   const maxFit = Math.max(0, ...facets.occasion.map((o) => o.fit ?? 0))
