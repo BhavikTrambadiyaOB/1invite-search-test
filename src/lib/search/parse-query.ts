@@ -220,7 +220,10 @@ export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIn
   const extra = compileLearned(learned)
   const occasionList = extra.occasions.length ? [...OCCASION_PHRASES, ...extra.occasions] : OCCASION_PHRASES
   // "10 th birthday", "son 23 th": an age written apart from its ending is still the age.
-  const normalized = fixSwappedLetters(normalizeQuery(query)).replace(/\b(\d{1,3}) (st|nd|rd|th)\b/g, '$1$2')
+  // "cow boy birthday party" is a cowboy party, not a cow and a boy.
+  const normalized = fixSwappedLetters(normalizeQuery(query))
+    .replace(/\b(\d{1,3}) (st|nd|rd|th)\b/g, '$1$2')
+    .replace(/\bcow (boy|girl)(s?)\b/g, 'cow$1$2')
   // "30th birthday", "5 year old", and a bare number next to the event ("1 birthday party").
   const milestone = extractMilestone(normalized) ?? extractMilestone(normalized, true)
   // Occasions are matched before milestone numbers are removed, so "first birthday" still reads as one phrase.

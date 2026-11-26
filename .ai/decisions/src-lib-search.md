@@ -7,6 +7,16 @@ paths:
 
 # Src Lib Search decisions
 
+## 2026-11-26 · Cowboy and Gatsby readings; Arangetram card is not a debut
+- **Why:** v3 phase 2 open feedback: "cow boy birthday party" showed cow and farm cards (#34 cowboy card should be first); "womens great gatsby birthday" showed fiesta and pajama parties ("great gatsby" was a Themed Party occasion phrase, so a second occasion); "debut party" #27 was a Bharatanatyam Arangetram card tagged Debut. User asked to fix open issues without making any result worse.
+- **What:** "cow boy" / "cow girl" read as cowboy / cowgirl (Western theme, boy / girl). "great gatsby" and "roaring 20s" moved from the Themed Party occasion to the Gatsby & Art Deco theme. Data: template 49103 (Arangetram) occasion debut → music_recital, extra_occasions {music_recital} → {} (embedding not recomputed). Snapshot vs previous: top 10 changed only for cow boy birthday party (+ "2 yrs") and womens great gatsby birthday (none rated success); every birthday search lost that one card (2988 → 2987), top 10 kept. Not changed on purpose: jump-and-play cards (tagged dance / play, and trampoline already has 12+ spellings, the text-match cap), glow / sky blue / horror order (tags cannot tell them apart), typed free keeps PRO matches after free ones (gorl pink), duplicate templates (data).
+- **Files:** `src/lib/search/taxonomy.ts`, `src/lib/search/parse-query.ts`
+
+## 2026-11-26 · Salgirah / Noor Mowlana stays a birthday reading
+- **Why:** v3 phase 2 testers expected Islamic celebration cards for "salgira mubarak" and "noor mowlana shah rahim salgira mubarak". The user decided (2026-11-26) they should not be treated as a religious occasion.
+- **What:** salgira / salgirah keep reading as Birthday (greetings when "mubarak" or wishes). No religious occasion or Islamic ranking is added for these queries; their failed-query rows stay as they are.
+- **Files:** `src/lib/search/taxonomy.ts`
+
 ## 2026-11-26 · Asked card type ranks before themes and age
 - **Why:** v3 phase 2: "save the date quinceanera, sweet, fiesta" had no Save the Date card in the top 12, because the card type was an "other detail" after themes (fiesta) and the printed age (15), and none of the 12 quinceañera save-the-dates has either.
 - **What:** New ladder rung kind_match right after the occasion tier and separate kinds: when the query names a card type other than Invitation (Save the Date, Greeting Card, Announcement), those cards come first; themes and age order them within. Snapshot: only card-type queries changed (quinceañera save the date top 8 all Save the Date, mens / teen birthday save the date, wishes greetings). "save the date for 6th birthday boys" now shows save-the-dates (no 6th one exists) before 6th boy invitations.

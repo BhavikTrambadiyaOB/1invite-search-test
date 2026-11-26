@@ -159,7 +159,7 @@ export const OCCASIONS: OccasionDef[] = [
   { id: 'bbq', generic: true, label: 'BBQ & Picnic', group: 'Parties', phrases: ['bbq', 'barbecue', 'barbeque', 'cookout', 'cook out', 'picnic', 'grill', 'block party', 'crawfish boil', 'fish fry', 'cookoff', 'cook off', 'pitmaster'] },
   { id: 'game_night', generic: true, label: 'Game & Movie Night', group: 'Parties', phrases: ['game night', 'movie night', 'trivia night', 'karaoke', 'poker night', 'bingo', 'casino night', 'murder mystery', 'super bowl', 'superbowl', 'watch party', 'game day', 'tailgate'] },
   { id: 'kitty_party', generic: true, label: 'Kitty Party', group: 'Parties', phrases: ['kitty party', 'ladies night', 'girls night', 'girls night out', 'ladies party', 'gals night'] },
-  { id: 'themed_party', generic: true, label: 'Themed Party', group: 'Parties', phrases: ['themed party', 'costume party', 'masquerade', 'disco party', 'neon party', 'glow party', 'throwback party', '80s party', '90s party', '70s party', 'roaring 20s', 'great gatsby', 'white party', 'toga party', 'pajama party', 'slumber party', 'sleepover', 'dance party', 'rave', 'fiesta', 'paint party', 'sip and paint'] },
+  { id: 'themed_party', generic: true, label: 'Themed Party', group: 'Parties', phrases: ['themed party', 'costume party', 'masquerade', 'disco party', 'neon party', 'glow party', 'throwback party', '80s party', '90s party', '70s party', 'white party', 'toga party', 'pajama party', 'slumber party', 'sleepover', 'dance party', 'rave', 'fiesta', 'paint party', 'sip and paint'] },
   { id: 'housewarming', label: 'Housewarming', group: 'Parties', phrases: ['housewarming', 'house warming', 'new home', 'new house', 'open house', 'griha pravesh', 'grih pravesh', 'griha pooja', 'home sweet home', 'we moved', 'weve moved', 'moving party', 'newhome'] },
   { id: 'farewell', label: 'Farewell & Going Away', group: 'Parties', phrases: ['farewell', 'going away', 'goodbye party', 'bon voyage', 'see you soon', 'see you again', 'send off', 'sendoff', 'maternity leave'] },
   { id: 'reunion', generic: true, label: 'Reunion', group: 'Parties', phrases: ['reunion', 'class of', 'alumni', 'homecoming', 'get together', 'family gathering'] },
@@ -416,7 +416,9 @@ export const THEMES: SimpleDef[] = [
   { id: 'retro', label: 'Retro & Disco', phrases: ['disco', 'retro', '70s', '80s', '90s', 'y2k', 'groovy', 'hippie', 'throwback'] },
   { id: 'neon', label: 'Neon & Glow', phrases: ['neon', 'glow', 'glow in the dark', 'blacklight'] },
   { id: 'western', label: 'Western & Cowboy', phrases: ['western', 'cowboy', 'cowgirl', 'rodeo', 'country', 'yeehaw', 'wild west'] },
-  { id: 'gatsby', label: 'Gatsby & Art Deco', phrases: ['gatsby', 'art deco', 'roaring 20s', 'roaring twenties', 'jazz age'] },
+  // "great gatsby" and "roaring 20s" are this theme, not the Themed Party occasion: as a second occasion they
+  // put fiesta and pajama parties above Gatsby cards ("womens great gatsby birthday").
+  { id: 'gatsby', label: 'Gatsby & Art Deco', phrases: ['gatsby', 'great gatsby', 'art deco', 'roaring 20s', 'roaring twenties', 'jazz age'] },
   { id: 'hollywood', label: 'Hollywood & Movies', phrases: ['hollywood', 'red carpet', 'movie', 'cinema', 'film', 'oscars'] },
   { id: 'music', label: 'Music', phrases: ['music', 'musical', 'rock and roll', 'jazz', 'karaoke', 'concert'] },
   { id: 'food', label: 'Food & Sweets', phrases: ['food', 'sweets', 'dessert', 'candy land', 'sweet treats', 'bakery'] },
