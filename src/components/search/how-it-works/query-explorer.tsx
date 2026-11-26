@@ -16,7 +16,7 @@ type Example = {
   why: string
 }
 
-/** Real searches captured on 3 Nov 2026 and rechecked on 17 Nov, with the meaning match off (rules and labels only). */
+/** Real searches captured on 3 Nov 2026 and rechecked on 17 Nov (the last two on 26 Nov), with the meaning match off (rules and labels only). */
 const EXAMPLES: Example[] = [
   {
     q: '5th wedding anniversary',
@@ -178,6 +178,64 @@ const EXAMPLES: Example[] = [
       ['Pink', 63],
     ],
     why: 'Under 90% sure, so the occasion is not a strict filter: 110 kitty party templates plus 13 that only mention it. The user typed the occasion name, so chips stay inside it.',
+  },
+  {
+    q: '1st birthday without photo',
+    total: 996,
+    exact: 373,
+    anchor: true,
+    read: [
+      ['Occasion', 'First Birthday', 'sure'],
+      ['Age', '1'],
+      ['Not wanted', 'photo'],
+    ],
+    top: [
+      ['Little Moose First Birthday Bash', '1'],
+      ['Fairy Tale First Birthday Celebration', '1'],
+      ['Fairy and Butterfly-Themed First Birthday', '1'],
+      ['Twins Girl Baptism and 1st Birthday', '1'],
+      ['Big Pink Bow First Birthday Celebration', '1'],
+      ['Tropical Pool First Birthday Party', '1'],
+    ],
+    tags: [
+      ['Woodland', 37],
+      ['Safari & Jungle', 25],
+      ['Boy', 90],
+      ['Girl', 139],
+      ['Farm & Barnyard', 21],
+      ['Bear', 26],
+      ['Balloon', 61],
+    ],
+    why: '“without photo” is set aside before the rest is read, and cards with a photo are left out: 996 of the 1,206 first birthday templates stay. Before, the word “photo” made search ask for a photo instead.',
+  },
+  {
+    q: 'mens birthday',
+    total: 1723,
+    exact: 61,
+    anchor: true,
+    read: [
+      ['Occasion', 'Birthday', 'sure'],
+      ['Gender', 'boy'],
+      ['Who', 'Adults 18–64'],
+    ],
+    top: [
+      ['Exciting Spin Class 30th Birthday Party', '30'],
+      ['Talavera Mexican Birthday Fiesta Celebration', '30'],
+      ['Mariachi Band Themed 40th Birthday Party', '40'],
+      ["Back to the 80's Birthday", '40'],
+      ['Las Vegas Surprise Birthday Party', '40'],
+      ['Red Tuxedo Inspired 50th Birthday Celebration', '50'],
+    ],
+    tags: [
+      ['50th', 11],
+      ['18th', 9],
+      ['60th', 7],
+      ['Retro & Disco', 7],
+      ['Western & Cowboy', 7],
+      ['Bow Tie', 8],
+      ['Sports', 7],
+    ],
+    why: '“mens” on a plain birthday with no age means a grown-up: boy cards of ages 18–64 come first (61 of them), and the chips are adult ages and themes, not First Birthday or Sweet 16. Kids cards still follow; nothing is hidden.',
   },
 ]
 

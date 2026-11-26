@@ -16,7 +16,7 @@ Gate optional search features with helpers in src/lib/search/features.ts that re
 Order results by sidebar picks, occasion tier, separate kinds last (Quinceañera, Debut under a plain birthday), the asked card type (not Invitation), asked themes and elements (tagged before word-only), element listed first, the rest of the design (colors, clear styles, photo, audience, joint, design-word gender), main color and shade (first tag counts most), typed free/pro, milestone (asked or implied; nearest, then equally far ages together, younger first), other details, niche, then score. Keep RANK_ORDER as the one copy of this order. A printed age never outranks the design, no other detail stands in for an asked theme or element, and only a sidebar pick or a negated sure fact (negation.ts) hides cards; a typed free/pro only ranks.
 
 ## Check ranking changes with snapshots
-Before and after a ranking or parsing change, run SEARCH_AI_ENABLED=false npm run search:snapshot -- <name> and compare: target queries improve, unrelated queries keep their top 24. Never spend AI credit or call live search for this check.
+Before and after a ranking or parsing change, run SEARCH_AI_ENABLED=false npm run search:snapshot -- <name> and npm run search:compare: target queries improve, unrelated queries keep their top 10, and no report query testers rated success changes its top 10. Never spend AI credit or call live search for this check.
 
 ## Empty results only for real answers
 Return an empty page only when the query was understood or a filter was picked. A typed query that understood nothing and found nothing gets the browse list with fallback set, and callers log it as zero results.
@@ -38,3 +38,15 @@ Read "without / no / not / non…" only in negation.ts: it removes the negated w
 
 ## Vocabulary spellings reach the database by seeding
 After adding phrases to OCCASIONS, THEMES, ASSETS or STYLES in taxonomy.ts, run npm run search:vocab-seed so vocab_alias (used for text matching and AI vocabulary) has them; a learned AI term gets extra spellings by a taxonomy.ts entry with the same id.
+
+## Log report searches again after a search change
+After a search, reading or template data change, run npm run search:report:log -- --version=N --phase=N --again for the current report run (AI key set to an invalid value, so cached readings are used and nothing is spent), so the Failed queries page judges today's search.
+
+## Query audiences only rank
+Read who a birthday is for as a QUERY_AUDIENCES audience (Toddlers, Teens, Adults, Seniors) that only ranks cards by printed age or audience tag, never hides them. Adult person words count only on a plain birthday with no asked age and not after little / baby / young; "old" or "senior" alone is never an audience.
+
+## Kind words start only from their own words
+A word that names a kind of thing ("effect", "activities") goes in KEYWORD_KINDS with when words and forms; only the when words start it, so a query naming one form ("glitter") keeps its own reading.
+
+## Template data changes are a last resort
+Fix results through query reading, vocabulary and ranking first; change template_search data only for a clear mis-tag the user agreed to, and write the old value in the decision entry.

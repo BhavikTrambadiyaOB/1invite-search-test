@@ -55,9 +55,9 @@ const STORY: Record<string, ReactNode> = {
   ),
   order: (
     <>
-      16 templates tie on rungs 1–2 and on the design match: birthday family, dinosaur and pink. Inside rung 3 the main
+      16 templates tie on rungs 1–3 and on the design match: birthday family, dinosaur and pink. Inside rung 4 the main
       color decides: ours lists pink second (pastel, pink…), so pink is a main color. <b>{EXAMPLE.rival.name}</b> lists
-      it third (blue, green, pink), so it drops from #1 to #{EXAMPLE.rival.rank}. Among the mostly-pink ones, rung 7,
+      it third (blue, green, pink), so it drops from #1 to #{EXAMPLE.rival.rank}. Among the mostly-pink ones, rung 8,
       the near-tie score, decides.
     </>
   ),

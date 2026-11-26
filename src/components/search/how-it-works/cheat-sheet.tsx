@@ -20,12 +20,12 @@ const LINES: { verb: string; color: string; text: string }[] = [
   {
     verb: 'Read',
     color: 'var(--p2)',
-    text: 'An occasion in the search anchors it: other details only change the order. No occasion: every detail must match.',
+    text: 'An occasion in the search anchors it: other details only change the order. No occasion: every detail must match. What it says it does not want (“no photo”, “non pro”) is set aside first and left out.',
   },
   {
     verb: 'Rank',
     color: 'var(--p3)',
-    text: 'The sorting ladder decides first: occasion closeness → design matched (asked theme or element first, elements count double, element listed first before a minor one, main color before a color detail) → closest milestone → other details.',
+    text: 'The sorting ladder decides first: occasion closeness → asked card type (Save the Date…) → design matched (asked theme or element first, elements count double, element listed first before a minor one, main color before a color detail) → closest milestone → other details.',
   },
   {
     verb: 'Rank',

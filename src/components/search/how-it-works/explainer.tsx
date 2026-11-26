@@ -31,6 +31,7 @@ import {
   Type,
   Waypoints,
   Zap,
+  Ban,
 } from 'lucide-react'
 import { SearchNav } from '@/components/search/search-nav'
 import { FieldMatrix } from './field-matrix'
@@ -871,6 +872,8 @@ export function Explainer() {
             <h4>Clean</h4>
             <p>
               Remove pasted chat prefixes, dates and filler (“template”, “invite”). Fix swapped letters: “brithday”.
+              Join split words: “10 th” → 10th, “cow boy” → cowboy. Set aside what is <b>not</b> wanted: “no photo”,
+              “non pro”, “without balloons”.
             </p>
             <span className={c('badge b-free')}>Free</span>
           </div>
@@ -881,8 +884,8 @@ export function Explainer() {
             </span>
             <h4>Rule reader</h4>
             <p>
-              Finds occasion, milestone, gender, who it is for (adult, teen), themes, elements, colors and shades,
-              format, type, language, photo, free.
+              Finds occasion, milestone, gender, who it is for (toddler, teen, adult, senior), themes, elements, colors
+              and shades, format, type, language, photo, free.
             </p>
             <span className={c('badge b-free')}>Free</span>
           </div>
@@ -957,15 +960,43 @@ export function Explainer() {
               </li>
               <li>
                 Plain facts the rules read are kept when the AI leaves them out: a photo (“4 pics of baby”), a second
-                occasion (“birthday thank you invitation”: birthday cards that say thank you), and an element named
-                exactly (“jump place” → trampoline).
+                occasion (“birthday thank you invitation”: birthday cards that say thank you), an element or theme named
+                exactly (“jump place” → trampoline, “sanrio” → Hello Kitty), a sure occasion word (“janmdin” →
+                birthday) and, on a birthday, the gender (“birthday for men”). The gender or person word is then not a
+                word the card has to print.
+              </li>
+              <li>
+                <b>What is not wanted.</b> “without”, “no”, “not”, “non”, “except”, “avoid”, “skip”, “don’t want” (and
+                “rsvp free”) followed by one understood thing set it aside before the rest is read. Sure facts are
+                hidden: a photo, PRO or free, a printed RSVP line, a theme, element or color tag (“1st birthday no
+                photo”, “birthday non pro”, “unicorn birthday without balloons”). Loose ones only rank lower: a joint
+                card (“not twins”), a printed age (“no year”), a style (“not so simple”). When the next word is an
+                occasion or a card word, nothing is set aside: in Hindi and Gujarati “no” means “of” (“mara bhai no
+                birthday”, “happy birthday no card”), and “no gifts”, “no host” are wording printed on cards.
+              </li>
+              <li>
+                <b>Who it is for.</b> “toddler” 1–3, “teen” 13–19, “adult” 18–64, and on a plain birthday with no age
+                typed, “men”, “women”, “lady”, “guy”, “male”, “mom”, “dad”, “wife”, “husband” are adults too (not after
+                “little”, “baby” or “young”). “old lady”, “old men”, “elderly”, “senior citizen”, “grandma”, “nani” are
+                Seniors, 60 and up. These only change the order, never hide a card. “old” or “senior” alone means
+                nothing here (“5 years old”, “old school”, “senior prom”).
+              </li>
+              <li>
+                Hindi and Urdu words: “bhai”, “bro” → boy; “didi”, “behen” → girl; “janmdin”, “salgirah” → birthday;
+                “shaadi ki salgirah” → wedding anniversary. “salgira mubarak” stays a birthday greeting.
+              </li>
+              <li>
+                Some words name a kind of thing: “effect” asks for glitter, glow, neon, sparkle or confetti cards;
+                “activities” for games, crafts and activity cards. “great gatsby” and “roaring 20s” are the Gatsby
+                theme; “plaid” is Gingham, “spiderman” is Spider Man, “chess” is Chess Piece, “kingship” is Princess &
+                Royal.
               </li>
               <li>
                 “save the date” next to another occasion is that occasion’s save-the-date: “save the date kid birthday”
                 finds kids birthday save-the-dates, not wedding ones. “reminder” also means a save-the-date.
               </li>
               <li>
-                “adult” and “teen” say who it is for. “joint”, “twins”, “triple” ask for a card for two or more people.
+                “joint”, “twins”, “triple” ask for a card for two or more people.
                 Shade words (“fuchsia”, “sky blue”, “mauve”) are kept to match the shade, and common misspellings
                 (“fucsia”, “rosegold”) are known.
               </li>
@@ -1090,6 +1121,19 @@ export function Explainer() {
           </div>
           <div className={c('rung')}>
             <span className={c('k')}>
+              <Ban className={c('i')} aria-hidden />
+            </span>
+            <div className={c('c')}>
+              <h4>Said it is not wanted</h4>
+              <p>
+                “no photo”, “non pro”, “without rsvp”, “without balloons”: cards with a photo, PRO cards (with the price
+                setting on), cards that print an RSVP line, or cards tagged with that theme, element or color are left
+                out. Only facts the data knows for sure hide a card.
+              </p>
+            </div>
+          </div>
+          <div className={c('rung')}>
+            <span className={c('k')}>
               <CircleDollarSign className={c('i')} aria-hidden />
             </span>
             <div className={c('c')}>
@@ -1132,9 +1176,10 @@ export function Explainer() {
               <div className={c('card')}>
                 <h4>“Without RSVP”</h4>
                 <p>
-                  “birthday without rsvp”, “no rsvp”: cards whose printed text has no reply line (“RSVP”, “Reply by”,
-                  “Regrets only”) come first. The words “without” and “rsvp” are not matched as text, or cards that print
-                  RSVP would win. Every invitation can still collect replies online.
+                  “birthday without rsvp”, “rsvp free”: cards that print a reply line (“RSVP”, “Reply by”, “Regrets
+                  only”) are left out. Each card’s every text line is checked, the contact lines too, because “RSVP to
+                  +1 012…” sits on the phone-number line that the card text leaves out. Every invitation can still
+                  collect replies online.
                 </p>
               </div>
               <div className={c('card')}>
@@ -1150,6 +1195,7 @@ export function Explainer() {
                 <h4>Type, photo, language rank</h4>
                 <p>
                   “eid wishes” shows greetings first, then other Eid templates, because an invitation is easy to reword.
+                  An asked card type ranks before themes and age (sorting ladder, rung 3).
                 </p>
               </div>
             </div>
@@ -1444,14 +1490,29 @@ export function Explainer() {
           <div className={c('rung')}>
             <span className={c('k')}>3</span>
             <div className={c('c')}>
+              <h4>Card type asked</h4>
+              <p>
+                When the search names a card type other than Invitation (Save the Date, Greeting Card, Announcement),
+                cards of that type come first. A save-the-date is a different card, while a theme or printed age can be
+                changed in the editor. Invitation is what nearly every card is, so asking for it changes nothing here.
+              </p>
+              <p className={c('eg muted')}>
+                “save the date quinceanera, sweet, fiesta”: the 12 quinceañera save-the-dates first (no fiesta or 15th
+                one exists), then the fiesta and 15th invitations.
+              </p>
+            </div>
+          </div>
+          <div className={c('rung')}>
+            <span className={c('k')}>4</span>
+            <div className={c('c')}>
               <h4>Design matched: subject first, elements count double</h4>
               <p>
                 First the subject: the asked themes and elements. A card tagged with the theme (Dinosaurs) comes before
                 one that only mentions it (Toy Story, which has Rex), and a card listing the asked element first or
                 second comes before one where it is 4th or 5th (a sheep card before a farm card with a sheep). No other detail can stand in for the subject, so
                 every dinosaur card comes before a “colorful” card without one. Then the rest of the design: color,
-                clear style (watercolor, rustic, glitter…), photo, other occasions named, who it is for (“adult” 18–64,
-                “teen” 13–19, “toddler” 1–3) and joint cards (“joint”, “twins”). A printed age is text the user can edit; the design is
+                clear style (watercolor, rustic, glitter…), photo, other occasions named, who it is for (“adult”, “men”,
+                “women”, “mom” 18–64, “teen” 13–19, “toddler” 1–3, “old lady”, “senior citizen” 60+) and joint cards (“joint”, “twins”). A printed age is text the user can edit; the design is
                 not, so design comes before the age. Among equal design matches, a card where
                 the asked color is a main color (its first color tags, the first counting most) or in the asked shade
                 (“fuchsia”, “sky blue”) comes first; a card where it is only a detail follows. An all-black card comes
@@ -1468,7 +1529,7 @@ export function Explainer() {
             </div>
           </div>
           <div className={c('rung')}>
-            <span className={c('k')}>4</span>
+            <span className={c('k')}>5</span>
             <div className={c('c')}>
               <h4>Milestone match</h4>
               <p>
@@ -1483,24 +1544,26 @@ export function Explainer() {
             </div>
           </div>
           <div className={c('rung')}>
-            <span className={c('k')}>5</span>
+            <span className={c('k')}>6</span>
             <div className={c('c')}>
               <h4>Milestone distance</h4>
               <p>Closest number first. For a 50th: 55th and 45th come before 20th.</p>
             </div>
           </div>
           <div className={c('rung')}>
-            <span className={c('k')}>6</span>
+            <span className={c('k')}>7</span>
             <div className={c('c')}>
               <h4>Other asked details matched</h4>
               <p>
-                Card type, language, format, gender, broad styles (elegant, modern…) and other words in the query. Then
+                Language, format, gender, broad styles (elegant, modern…), a printed age or style the search said it
+                does not want (“no year”, “not so simple”), a joint card it does not want (“not twins”) and other words
+                in the query. Then
                 Zodiac cards go after the rest unless the query asks for them.
               </p>
             </div>
           </div>
           <div className={c('rung')}>
-            <span className={c('k')}>7</span>
+            <span className={c('k')}>8</span>
             <div className={c('c')}>
               <h4>Near-tie score</h4>
               <p>
@@ -1510,14 +1573,14 @@ export function Explainer() {
             </div>
           </div>
           <div className={c('rung')}>
-            <span className={c('k')}>8</span>
+            <span className={c('k')}>9</span>
             <div className={c('c')}>
               <h4>Final score</h4>
               <p>Relevance, freshness and quality combined (next section).</p>
             </div>
           </div>
           <div className={c('rung')}>
-            <span className={c('k')}>9</span>
+            <span className={c('k')}>10</span>
             <div className={c('c')}>
               <h4>Newest, then ID</h4>
               <p>A stable last tie-break, so the same search always gives the same order.</p>
@@ -1541,19 +1604,19 @@ export function Explainer() {
                 <td className={c('num')}>1–4</td>
                 <td>Elegant Floral 5th Anniversary · Greenery and Gold · Heart-Themed Five Year · Outer Space 5th</td>
                 <td className={c('num')}>5</td>
-                <td>Rung 4: has the asked milestone. Then rung 8 orders the four.</td>
+                <td>Rung 5: has the asked milestone. Then rung 9 orders the four.</td>
               </tr>
               <tr>
                 <td className={c('num')}>5</td>
                 <td>Romantic 7th Anniversary Celebration</td>
                 <td className={c('num')}>7</td>
-                <td>Rung 5: 2 away from 5</td>
+                <td>Rung 6: 2 away from 5</td>
               </tr>
               <tr>
                 <td className={c('num')}>6</td>
                 <td>Elegant Floral 3-Year Anniversary Celebration</td>
                 <td className={c('num')}>3</td>
-                <td>Rung 5: also 2 away, rung 8 put the 7th first</td>
+                <td>Rung 6: also 2 away, rung 9 put the 7th first</td>
               </tr>
               <tr>
                 <td className={c('num')}>…</td>
@@ -1645,7 +1708,16 @@ export function Explainer() {
           className={c('small')}
           style={{ margin: '0 0 12px', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px', listStyle: 'disc' } as CSSProperties}
         >
-          <li>Boy and Girl come as a pair or not at all. For an adult age (18th and up, or “adult”) they read Men / Women.</li>
+          <li>
+            Boy and Girl come as a pair or not at all. For an adult age (18th and up), “adult”, “men”, “women”, “mom”
+            or a senior search they read Men / Women, and adult searches get adult ages and themes, not First
+            Birthday or Sweet 16.
+          </li>
+          <li>
+            A card type or second occasion the search names comes first as a chip, because the search only ranks it:
+            “birthday reminder” offers Save the Date (37), “birthday thank you invitation” offers Thank You (2).
+            Invitation is never offered, since nearly every card is one.
+          </li>
           <li>With 40 results or fewer, a chip needs 3 cards instead of 5, so a small search still gets choices.</li>
           <li>One place is kept for the best style chip, since styles otherwise score lowest and rarely show.</li>
         </ul>
@@ -2061,7 +2133,10 @@ export function Explainer() {
             <div>
               <h4>Templates we don’t have</h4>
               <p>
-                Birthday welcome boards and signs, birthday letters and gift cards, Coraline, baby-birthday thank-you cards, 47th birthdays. Search shows the closest designs; only new templates fix these.
+                Birthday welcome boards and signs, programs and timelines, birthday letters and gift cards, Coraline,
+                Curious George, kingship, k-pop, chess (1), baby boss (3), snoopy (4), birthday thank-you cards (2),
+                welcome signs for birthdays (0), 47th birthdays. Search shows the closest designs; only new templates
+                fix these.
               </p>
             </div>
             <span className={c('badge b-warn')}>Catalog</span>
@@ -2069,19 +2144,25 @@ export function Explainer() {
           <div className={c('gap')}>
             <TriangleAlert className={c('i')} aria-hidden />
             <div>
-              <h4>“with effect” and “without RSVP”</h4>
+              <h4>Tags that cannot tell cards apart</h4>
               <p>
-                No label for effects; meaning search returns plain cards. “without” is not understood (meaning search even puts an RSVP card first). About 1,500 birthday invitations print no RSVP wording, but what “without RSVP” should mean is a product decision.
+                Testers want some cards first that carry the same tags as the ones above them: “birthday glow”, “happy
+                birthday sky blue” (light blue next to navy), “horror movies birthday” (the saved AI reading adds movie
+                night), and two “jump and play” cards tagged Dance and Play instead of trampoline. Duplicate templates
+                also show twice (balloon 70108 / 70109, Corpse Bride 68827 / 68829). These need tag or catalog fixes,
+                not ranking rules.
               </p>
             </div>
-            <span className={c('badge b-warn')}>Decision</span>
+            <span className={c('badge b-warn')}>Data</span>
           </div>
           <div className={c('gap')}>
             <TriangleAlert className={c('i')} aria-hidden />
             <div>
-              <h4>Audience only for adults and teens</h4>
+              <h4>Seniors known only by a printed age</h4>
               <p>
-                “adult” and “teen” rank by age range. Other audiences saved on templates (couple, corporate…) still only feed the meaning vector.
+                Toddlers, teens, adults and seniors rank by age range. No card is tagged “senior”, so a senior card
+                without a printed 60+ age cannot be found: “old lady birthday party with no year” finds 0 direct cards.
+                Other audiences saved on templates (couple, corporate…) still only feed the meaning vector.
               </p>
             </div>
             <span className={c('badge b-warn')}>Parked</span>
@@ -2204,8 +2285,11 @@ export function Explainer() {
               </tr>
               <tr>
                 <td>Age ranges</td>
-                <td className={c('num')}>18–64 / 13–19 / 1–3</td>
-                <td>“adult” / “teen” / “toddler”: cards in this range first</td>
+                <td className={c('num')}>18–64 / 13–19 / 1–3 / 60–110</td>
+                <td>
+                  “adult” (or men, women, mom… on a plain birthday) / “teen” / “toddler” / “old lady”, “senior
+                  citizen”: cards in this range first
+                </td>
               </tr>
               <tr>
                 <td>Occasion ages</td>
@@ -2340,6 +2424,21 @@ export function Explainer() {
           <div>
             <dt>Chip / tag</dt>
             <dd>A one-tap suggestion above the results.</dd>
+          </div>
+          <div>
+            <dt>Exclusion</dt>
+            <dd>
+              What the search says it does not want (“no photo”, “non pro”, “without balloons”). Sure facts hide cards;
+              loose ones only rank them lower.
+            </dd>
+          </div>
+          <div>
+            <dt>Audience</dt>
+            <dd>Who the card is for, by age range: toddlers, teens, adults, seniors. It only ranks.</dd>
+          </div>
+          <div>
+            <dt>Card type</dt>
+            <dd>Invitation, Save the Date, Greeting Card or Announcement. An asked type other than Invitation ranks first.</dd>
           </div>
           <div>
             <dt>Facet</dt>
