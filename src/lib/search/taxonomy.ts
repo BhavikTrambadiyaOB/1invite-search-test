@@ -34,6 +34,22 @@ export const MILESTONE_BIRTHDAYS: Record<number, string> = { 1: 'first_birthday'
  * finds a "Wedding Program": both are the order of the day. Not a card type, since "Business Opportunity
  * Program" or "Election Programme" use the same word for an event.
  */
+/**
+ * Wording that names a kind of thing rather than one thing. Only the `when` words start it, and a card fits with any
+ * of the `forms`: "birthday with effect" asks glitter, glow, neon… cards, while "glitter birthday" stays a glitter
+ * search.
+ */
+export const KEYWORD_KINDS: { when: string[]; forms: string[] }[] = [
+  {
+    when: ['effect', 'effects', 'special effect', 'special effects', 'visual effect', 'visual effects'],
+    forms: ['glitter', 'sparkle', 'sparkly', 'shimmer', 'glow', 'neon', 'shine', 'shiny', 'metallic', 'foil', 'confetti'],
+  },
+  {
+    when: ['activity', 'activities'],
+    forms: ['activity', 'activities', 'game', 'games', 'craft', 'crafts', 'bingo', 'trivia', 'puzzle', 'scavenger hunt'],
+  },
+]
+
 export const KEYWORD_SYNONYMS: string[][] = [
   ['afterparty', 'after party', 'after-party'],
   ['voucher', 'vouchers', 'ticket', 'tickets', 'admission', 'admit one', 'boarding pass', 'coupon'],
@@ -79,7 +95,7 @@ const BUSINESS_WORDS = [
 
 export const OCCASIONS: OccasionDef[] = [
   // Birthday
-  { id: 'birthday', label: 'Birthday', group: 'Birthday', phrases: ['birthday', 'bday', 'b day', 'cumpleanos', 'anniversaire de naissance', 'birthday bash'], weak: ['turning'] },
+  { id: 'birthday', label: 'Birthday', group: 'Birthday', phrases: ['birthday', 'bday', 'b day', 'cumpleanos', 'anniversaire de naissance', 'birthday bash', 'janmdin', 'janamdin', 'janmadin', 'janm din', 'janam din', 'salgirah', 'salgira', 'saalgirah', 'saalgira', 'sal girah'], weak: ['turning'] },
   { id: 'first_birthday', label: 'First Birthday', group: 'Birthday', parent: 'birthday', phrases: ['first birthday', '1st birthday', 'one year old', 'wild one', 'onederful', 'our little one is turning one', 'turning one', 'mi primer ano', 'primer cumpleanos'] },
   { id: 'kids_birthday', label: 'Kids Birthday', group: 'Birthday', parent: 'birthday', phrases: ['kids birthday', 'kid birthday', 'children birthday', 'childrens birthday', 'toddler birthday'] },
   { id: 'sweet_16', label: 'Sweet 16', group: 'Birthday', parent: 'birthday', phrases: ['sweet 16', 'sweet sixteen', '16th birthday', 'sixteenth birthday'] },
@@ -109,7 +125,7 @@ export const OCCASIONS: OccasionDef[] = [
 
   // Anniversary
   { id: 'anniversary', label: 'Anniversary', group: 'Anniversary', abstract: true, phrases: ['anniversary', 'aniversario'] },
-  { id: 'wedding_anniversary', label: 'Wedding Anniversary', group: 'Anniversary', parent: 'anniversary', phrases: ['wedding anniversary', 'marriage anniversary', 'anniversary of marriage', 'years of marriage', 'years of love', 'years together', 'happily married', 'vow renewal', 'renewal of vows', 'renew our vows', 'renewing their vows', 'golden anniversary', 'silver anniversary', 'ruby anniversary', 'pearl anniversary', 'diamond anniversary', 'aniversario de bodas', 'bodas de oro', 'bodas de plata'], weak: ['anniversary', 'anniversaries', 'aniversario', 'happy anniversary'], blockers: [...BUSINESS_WORDS, 'death', 'death anniversary', 'in loving memory', 'memorial'] },
+  { id: 'wedding_anniversary', label: 'Wedding Anniversary', group: 'Anniversary', parent: 'anniversary', phrases: ['wedding anniversary', 'marriage anniversary', 'shaadi ki salgirah', 'shaadi ke salgirah', 'shadi ki salgirah', 'shadi ke salgirah', 'shaadi ki saalgirah', 'shaadi ki salgira', 'shadi ki salgira', 'shaadi ki varshgaanth', 'anniversary of marriage', 'years of marriage', 'years of love', 'years together', 'happily married', 'vow renewal', 'renewal of vows', 'renew our vows', 'renewing their vows', 'golden anniversary', 'silver anniversary', 'ruby anniversary', 'pearl anniversary', 'diamond anniversary', 'aniversario de bodas', 'bodas de oro', 'bodas de plata'], weak: ['anniversary', 'anniversaries', 'aniversario', 'happy anniversary'], blockers: [...BUSINESS_WORDS, 'death', 'death anniversary', 'in loving memory', 'memorial'] },
   { id: 'engagement_anniversary', label: 'Engagement Anniversary', group: 'Anniversary', parent: 'anniversary', phrases: ['engagement anniversary', 'anniversary of our engagement', 'years since we got engaged', 'engagementversary'] },
   { id: 'company_anniversary', label: 'Company Anniversary', group: 'Anniversary', parent: 'anniversary', phrases: ['company anniversary', 'business anniversary', 'corporate anniversary', 'store anniversary', 'shop anniversary', 'work anniversary', 'years in business', 'years of service', 'years of excellence', 'founding anniversary', 'church anniversary', 'school anniversary', 'club anniversary', 'agency anniversary', 'clinic anniversary', 'restaurant anniversary', 'salon anniversary', 'studio anniversary', 'center anniversary'], weak: ['anniversary', 'anniversaries', 'aniversario'], requires: [...BUSINESS_WORDS, 'company anniversary', 'business anniversary', 'corporate anniversary', 'store anniversary', 'shop anniversary', 'work anniversary', 'church anniversary', 'school anniversary', 'club anniversary', 'agency anniversary', 'clinic anniversary', 'restaurant anniversary', 'salon anniversary', 'studio anniversary', 'center anniversary', 'years of excellence', 'founding anniversary'] },
 
@@ -301,6 +317,17 @@ export const QUERY_AUDIENCES: (SimpleDef & { ages: [number, number] })[] = [
   { id: 'seniors', label: 'Seniors', ages: [60, 110], phrases: seniorPhrases() },
 ]
 
+/**
+ * "mens birthday", "birthday woman", "mom birthday", "guy birthday": a grown-up's birthday. On a plain birthday with
+ * no age asked these read as the Adults audience (18–64), so adult cards and Men / Women chips come first instead of
+ * every boy or girl card. Not after "little", "lil", "baby" or "young" ("little lady", "young man" is a teen).
+ */
+export const ADULT_PERSON_WORDS = [
+  'men', 'mens', 'man', 'women', 'womens', 'woman', 'lady', 'ladies', 'gentleman', 'gentlemen', 'gents', 'guy', 'guys',
+  'male', 'males', 'female', 'females', 'husband', 'hubby', 'wife', 'mom', 'mum', 'mommy', 'mummy', 'mother', 'dad',
+  'daddy', 'father', 'papa', 'boyfriend', 'girlfriend', 'fiance', 'fiancee',
+]
+
 function seniorPhrases() {
   const people = [
     'lady', 'ladies', 'woman', 'women', 'man', 'men', 'gentleman', 'gentlemen', 'guy', 'guys', 'person', 'people',
@@ -367,9 +394,12 @@ export const THEMES: SimpleDef[] = [
   { id: 'pets', label: 'Animals & Pets', phrases: ['animal', 'animals', 'pet', 'pets', 'puppy party', 'kitty'] },
   { id: 'dinosaurs', label: 'Dinosaurs', phrases: ['dinosaur', 'dinosaurs', 'dino', 'jurassic', 'prehistoric'] },
   { id: 'fairy_magic', label: 'Fairy & Magic', phrases: ['fairy', 'fairies', 'magic', 'magical', 'enchanted', 'fairytale', 'fairy tale', 'wizard'] },
-  { id: 'princess', label: 'Princess & Royal', phrases: ['princess', 'prince', 'royal', 'royalty', 'queen', 'king'] },
+  { id: 'princess', label: 'Princess & Royal', phrases: ['princess', 'prince', 'royal', 'royalty', 'queen', 'king', 'kings', 'kingship', 'kingdom'] },
   { id: 'toys', label: 'Toys & Teddy Bears', phrases: ['toys', 'toy', 'teddy bear theme', 'toy story'] },
   { id: 'superhero', label: 'Superhero', phrases: ['superhero', 'super hero', 'superheroes', 'hero'] },
+  // Learned from AI tagging; these spellings were missing ("orange plaid birthday", "my melody birthday").
+  { id: 'gingham', label: 'Gingham', phrases: ['gingham', 'plaid', 'tartan', 'buffalo plaid', 'buffalo check', 'checkered pattern', 'check pattern'] },
+  { id: 'hello_kitty', label: 'Hello Kitty', phrases: ['hello kitty', 'my melody', 'sanrio'] },
   { id: 'space', label: 'Space', phrases: ['space', 'outer space', 'galaxy', 'cosmic', 'planets'] },
   { id: 'celestial', label: 'Stars & Celestial', phrases: ['celestial', 'starry', 'twinkle twinkle', 'stars and moon', 'over the moon'] },
   { id: 'rainbow', label: 'Rainbow', phrases: ['rainbow', 'rainbows'] },
@@ -483,6 +513,9 @@ export const ASSETS: AssetDef[] = [
   a('dragon', 'Dragon', ['fairy_magic'], ['dragons']),
   a('castle', 'Castle', ['princess', 'fairy_magic']),
   a('crown', 'Crown', ['princess'], ['crowns', 'tiara', 'tiaras']),
+  // Learned from AI tagging; "spiderman" in one word and "chess" alone were not understood.
+  a('spider_man', 'Spider Man', ['superhero'], ['spiderman', 'spidey', 'spider man']),
+  a('chess_piece', 'Chess Piece', [], ['chess', 'chess piece', 'chess pieces', 'checkmate']),
   a('wand', 'Magic Wand', ['fairy_magic'], ['wand']),
   // Toys
   a('teddy_bear', 'Teddy Bear', ['toys'], ['teddy', 'teddy bears', 'we can bearly wait']),
@@ -629,7 +662,9 @@ export const GENDERS: SimpleDef[] = [
       'girl', 'girls', 'its a girl', 'baby girl', 'little girl', 'she', 'her', 'hers', 'herself', 'daughter',
       'princess', 'little lady', 'ballerina', 'quinceanera', 'quince', 'bat mitzvah', 'sister', 'mom', 'mommy',
       'mother', 'wife', 'woman', 'women', 'mujer', 'mujeres', 'femme', 'femmes', 'ladies', 'lady', 'queen', 'bride', 'galentine', 'niece', 'granddaughter',
-      'grandma', 'grandmother', 'aunt', 'nina', 'mis xv', 'cowgirl', 'cowgirls',
+      'grandma', 'grandmother', 'aunt', 'nina', 'mis xv', 'cowgirl', 'cowgirls', 'female', 'females', 'womens', 'mummy', 'mum',
+      // Hindi / Urdu: sister.
+      'didi', 'behen', 'bahen', 'bahan', 'sis',
     ],
   },
   {
@@ -639,6 +674,9 @@ export const GENDERS: SimpleDef[] = [
       'boy', 'boys', 'its a boy', 'baby boy', 'little boy', 'he', 'his', 'him', 'himself', 'son', 'prince',
       'little man', 'lil man', 'bar mitzvah', 'brother', 'dad', 'daddy', 'father', 'husband', 'man', 'men', 'hombre', 'hombres', 'homme', 'hommes',
       'gentleman', 'gentlemen', 'king', 'groom', 'nephew', 'grandson', 'grandpa', 'grandfather', 'uncle', 'cowboy', 'cowboys',
+      'male', 'males', 'guy', 'guys', 'gents', 'mens',
+      // Hindi / Urdu: brother.
+      'bhai', 'bhaiya', 'bhaiyya', 'bhaijaan', 'bro',
     ],
   },
   { id: 'neutral', label: 'Gender-neutral', phrases: ['gender neutral', 'unisex'] },

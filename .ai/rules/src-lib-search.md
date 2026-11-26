@@ -1,6 +1,7 @@
 ---
 paths:
   - src/lib/search/**
+  - scripts/**
 ---
 
 # Src Lib Search
@@ -21,10 +22,10 @@ Before and after a ranking or parsing change, run SEARCH_AI_ENABLED=false npm ru
 Return an empty page only when the query was understood or a filter was picked. A typed query that understood nothing and found nothing gets the browse list with fallback set, and callers log it as zero results.
 
 ## Rules readings the AI cannot override
-In resolve-intent, keep the rules reading for audience, a kids birthday over a broad AI party reading (with the rules confidence), an element whose exact name the AI left as a keyword, a photo the AI left out, and a second occasion next to the same main one. Build every SQL parameter only where it is used.
+In resolve-intent, keep the rules reading for audience, a kids birthday over a broad AI party reading (with the rules confidence), a sure rules occasion when the AI found none, an element or theme whose exact name the AI left as a keyword, a photo the AI left out, a second occasion next to the same main one, and on a birthday the gender the AI left out (its gender or adult person word is then not a keyword). Build every SQL parameter only where it is used.
 
 ## Tag chips come from the near results
-Suggest chips from the cards that match everything asked when there are enough; otherwise from the first RANKING.suggestions.focusFallback results, never the whole occasion, and never from separate kinds (Quinceañera, Debut) of a plain birthday. Boy and Girl show as a pair or not at all, read Men / Women from RANKING.suggestions.adultAge, and one place is kept for a style chip.
+Suggest chips from the cards that match everything asked when there are enough; otherwise from the first RANKING.suggestions.focusFallback results, never the whole occasion, and never from separate kinds (Quinceañera, Debut) of a plain birthday. Boy and Girl show as a pair or not at all, read Men / Women from RANKING.suggestions.adultAge or an Adults / Seniors audience, and one place is kept for a style chip. A card type or second occasion the query names (it only ranks) comes first as a chip when it narrows the results.
 
 ## Reviewed gender wins over enrichment
 A gender reviewed and applied in template_gender_review overrides the tagger; enrichment saves must keep it.
@@ -34,3 +35,6 @@ Judge and label searches in failed-queries.ts / failed-query-checks.ts only; do 
 
 ## Negations are read before the query
 Read "without / no / not / non…" only in negation.ts: it removes the negated words before the query is read and returns exclusions. A negated photo, PRO/free, RSVP line, theme, element or color hides cards; a negated joint card, printed age or style only ranks lower. Leave the words alone when the next one is an occasion, a card word or card wording ("no gifts"). Answer "prints RSVP" from template_search.prints_rsvp, never card_text.
+
+## Vocabulary spellings reach the database by seeding
+After adding phrases to OCCASIONS, THEMES, ASSETS or STYLES in taxonomy.ts, run npm run search:vocab-seed so vocab_alias (used for text matching and AI vocabulary) has them; a learned AI term gets extra spellings by a taxonomy.ts entry with the same id.

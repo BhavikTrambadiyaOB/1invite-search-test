@@ -17,7 +17,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | src/components/ai-elements/** | .ai/rules/src-components-ai-elements.md |
 | src/components/search/how-it-works/** | .ai/rules/src-components-search-how-it-works.md |
 | src/components/ui/** | .ai/rules/src-components-ui.md |
-| src/lib/search/** | .ai/rules/src-lib-search.md |
+| src/lib/search/**, scripts/** | .ai/rules/src-lib-search.md |
 | src/lib/** | .ai/rules/src-lib.md |
 | src/mastra/agents/** | .ai/rules/src-mastra-agents.md |
 | src/mastra/tools/** | .ai/rules/src-mastra-tools.md |

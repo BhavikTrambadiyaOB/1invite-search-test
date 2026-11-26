@@ -123,7 +123,7 @@ export type FacetValue = {
 export type QuickTag = { occasion: string; label: string; count: number }
 
 /** The filter group a suggested tag sets. Values in a group combine with OR, groups with AND. */
-export type TagGroup = 'groups' | 'occasions' | 'milestones' | 'genders' | 'themes' | 'assets' | 'styles' | 'colors' | 'moods' | 'languages' | 'photo'
+export type TagGroup = 'groups' | 'occasions' | 'milestones' | 'genders' | 'themes' | 'assets' | 'styles' | 'colors' | 'moods' | 'languages' | 'photo' | 'docTypes'
 
 /**
  * A chip that narrows the current results ("Kids", "1st", "Dinosaurs", "With photo").
@@ -139,7 +139,7 @@ export type SearchMatchCounts = {
 }
 
 /** A filter the user already chose, shown as a removable chip. */
-export type ActiveTag = { group: TagGroup | 'price' | 'orientation' | 'docTypes'; value: string; label: string }
+export type ActiveTag = { group: TagGroup | 'price' | 'orientation'; value: string; label: string }
 
 export type SearchResponse = {
   searchId: number | null

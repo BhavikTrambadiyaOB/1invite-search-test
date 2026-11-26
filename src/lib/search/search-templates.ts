@@ -877,7 +877,7 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
     milestones: focusOf('milestones', (m) => ({ id: m.id, label: ordinal(Number(m.id)), count: m.count })),
     photo: focusOf('photo', (f) => ({ id: 'with', label: 'With photo', count: f.count })),
   }
-  const suggested = await suggestTags({ facets: focusFacets, total: row.focus_total, intent, filters, appliedOccasion: strictOccasion?.id ?? null, vocab, browsing: !query.trim() && activeTags(filters, vocab).length === 0 })
+  const suggested = await suggestTags({ facets: focusFacets, total: row.focus_total, results: { facets, total: row.total }, intent, filters, appliedOccasion: strictOccasion?.id ?? null, vocab, browsing: !query.trim() && activeTags(filters, vocab).length === 0 })
   // A query that names no event ("pizza", "dinner invitation") first asks what kind of event: Birthday,
   // Parties, Business & Community. A group whose results are nearly all one occasion shows that occasion.
   // Tapping a group ("Parties") then offers its events (Kitty Party, Sleepover, Food Party) as quick tags.

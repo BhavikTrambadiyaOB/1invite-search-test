@@ -22,6 +22,7 @@ import {
   QUERY_AUDIENCES,
   JOINT_WORDS,
   KIDS_WORDS,
+  ADULT_PERSON_WORDS,
 } from './taxonomy'
 import { compilePhrases, extractMilestone, normalizeText, queryText, stripMilestones } from './text'
 import type { SearchIntent } from './types'
@@ -218,7 +219,8 @@ function fixSwappedLetters(normalized: string): string {
 export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIntent {
   const extra = compileLearned(learned)
   const occasionList = extra.occasions.length ? [...OCCASION_PHRASES, ...extra.occasions] : OCCASION_PHRASES
-  const normalized = fixSwappedLetters(normalizeQuery(query))
+  // "10 th birthday", "son 23 th": an age written apart from its ending is still the age.
+  const normalized = fixSwappedLetters(normalizeQuery(query)).replace(/\b(\d{1,3}) (st|nd|rd|th)\b/g, '$1$2')
   // "30th birthday", "5 year old", and a bare number next to the event ("1 birthday party").
   const milestone = extractMilestone(normalized) ?? extractMilestone(normalized, true)
   // Occasions are matched before milestone numbers are removed, so "first birthday" still reads as one phrase.
@@ -312,6 +314,9 @@ export function parseQuery(query: string, learned?: LearnedVocabulary): SearchIn
   const audiences = matchDefs(C_AUDIENCES, text)
   // "toddler" is also read as a kids birthday above, which uses up the word: read the age range from the query.
   if (audiences.length === 0 && /\btoddlers?\b/.test(normalized)) audiences.push('toddlers')
+  // "mens birthday", "mom birthday": a grown-up on a plain birthday with no age asked (a printed age decides then).
+  const adultPerson = new RegExp(`(?<!\\b(?:little|lil|baby|young) )\\b(?:${ADULT_PERSON_WORDS.join('|')})\\b`)
+  if (audiences.length === 0 && occasion === 'birthday' && !milestone && adultPerson.test(normalized)) audiences.push('adults')
 
   // Gender: who the event is for. Read from the whole query; both genders ("boy or girl") means none.
   const genderHits = C_GENDERS.filter((g) => g.phrases.some((p) => ((p.re.lastIndex = 0), p.re.test(` ${normalized} `))))

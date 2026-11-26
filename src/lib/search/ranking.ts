@@ -116,6 +116,8 @@ export const RANKING = {
       moods: { weight: 0.8, max: 1 },
       styles: { weight: 0.75, max: 1 },
       colors: { weight: 0.7, max: 2 },
+      /** Card type (Save the Date, Greeting Card…): offered when the query names one (it only ranks). */
+      docTypes: { weight: 1.3, max: 1 },
     },
     /** Values never offered as chips: the photo frame is the "With photo" chip, typography is on most cards. */
     skip: ['asset:photo_frame', 'style:typography', 'style:illustrated', 'style:photo'],

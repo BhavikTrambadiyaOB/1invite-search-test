@@ -55,6 +55,7 @@ type Candidate = SuggestedTag & { score: number }
 export async function suggestTags({
   facets,
   total,
+  results,
   intent,
   filters,
   appliedOccasion,
@@ -63,6 +64,8 @@ export async function suggestTags({
 }: {
   facets: SearchResponse['facets']
   total: number
+  /** All results (not only the best ones), for the asked card type and second occasion chips. */
+  results?: { facets: SearchResponse['facets']; total: number }
   intent: SearchIntent
   filters: SearchFilters
   appliedOccasion: string | null
@@ -124,6 +127,7 @@ export async function suggestTags({
     moods: filters.moods?.length ?? 0,
     languages: filters.languages?.length ?? 0,
     photo: filters.photo ? 1 : 0,
+    docTypes: filters.docTypes?.length ?? 0,
   }
 
   // Few results ("teen birthday coraline", "birthday voucher"): a chip of 3 cards is still a real choice.
@@ -172,7 +176,40 @@ export async function suggestTags({
   consider('styles', facets.styles)
   consider('colors', facets.colors)
 
-  return pairGenders(pick(candidates, cfg.max), genders, genderLabel, cfg.max)
+  return withAskedChips(pairGenders(pick(candidates, cfg.max), genders, genderLabel, cfg.max), askedChips(intent, filters, results), cfg.max)
+}
+
+/**
+ * "birthday reminder" (Save the Date), "birthday thank you invitation" (Thank You): a card type or second occasion
+ * the query names only ranks its cards first. Its chip keeps only those cards, so it is offered first, whatever
+ * its share, when a few cards have it and it narrows the results.
+ */
+function askedChips(intent: SearchIntent, filters: SearchFilters, results?: { facets: SearchResponse['facets']; total: number }): SuggestedTag[] {
+  if (!results) return []
+  const min = RANKING.suggestions.minCountInGroup
+  const narrows = (v: FacetValue | undefined): v is FacetValue => !!v && v.count >= min && v.count < results.total
+  const out: SuggestedTag[] = []
+  // Invitation is what nearly every card is: as a chip it says nothing.
+  const docType = intent.docType && intent.docType !== 'invitation' && !filters.docTypes?.length
+    ? results.facets.docType.find((d) => d.id === intent.docType)
+    : undefined
+  if (narrows(docType)) out.push({ group: 'docTypes', value: docType.id, label: docType.label, count: docType.count })
+  if (!filters.occasions?.length) {
+    for (const id of intent.alsoOccasions) {
+      const v = results.facets.occasion.find((o) => o.id === id)
+      if (narrows(v)) out.push({ group: 'occasions', value: v.id, label: v.label, count: v.count })
+    }
+  }
+  return out
+}
+
+/** The asked chips first; the last other chips make room for them. */
+function withAskedChips(chosen: SuggestedTag[], asked: SuggestedTag[], max: number): SuggestedTag[] {
+  if (asked.length === 0) return chosen
+  const out = [...asked, ...chosen.filter((t) => !asked.some((a) => a.group === t.group && a.value === t.value))]
+  // Boy and Girl stay a pair: drop other chips from the end.
+  while (out.length > max) out.splice(out.findLastIndex((t) => t.group !== 'genders'), 1)
+  return out
 }
 
 /**

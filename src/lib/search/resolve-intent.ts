@@ -1,7 +1,7 @@
 import { db } from '../db'
 import { isAiEnabled } from './ai-config'
 import { isConfidentParse, normalizeQuery, parseQuery } from './parse-query'
-import { ASSET_BY_ID } from './taxonomy'
+import { ADULT_PERSON_WORDS, ASSET_BY_ID, DESIGN_GENDER_WORDS, GENDER_BY_ID, THEME_BY_ID } from './taxonomy'
 import { hasNonLatinLetters } from './text'
 import type { SearchIntent } from './types'
 import { getVocabulary, learnedTerms } from './vocabulary'
@@ -23,14 +23,14 @@ export async function resolveIntent(query: string): Promise<SearchIntent> {
   // Intents cached before moods, language and photo were added lack those fields.
   if (hit) {
     const intent = { ...hit, moods: hit.moods ?? [], alsoOccasions: hit.alsoOccasions ?? [], language: hit.language ?? null, hasPhoto: hit.hasPhoto ?? null } as SearchIntent
-    return { ...withRuleReading(rules, { ...intent, ...kidsOccasion(rules, intent), assets: withRuleAssets(rules, intent) }), audience: rules.audience, language: askedLanguage(query, rules, intent.language) }
+    return { ...withRuleReading(rules, { ...intent, ...kidsOccasion(rules, intent), assets: withRuleAssets(rules, intent), themes: withRuleThemes(rules, intent) }), audience: rules.audience, language: askedLanguage(query, rules, intent.language) }
   }
 
   try {
     // Loaded only when needed, so search without AI never imports the AI stack.
     const { aiParseQuery } = await import('./ai-parse-query')
     const read = await aiParseQuery(query, rules)
-    const intent = { ...withRuleReading(rules, { ...read, ...kidsOccasion(rules, read), assets: withRuleAssets(rules, read) }), language: askedLanguage(query, rules, read.language) }
+    const intent = { ...withRuleReading(rules, { ...read, ...kidsOccasion(rules, read), assets: withRuleAssets(rules, read), themes: withRuleThemes(rules, read) }), audience: rules.audience, language: askedLanguage(query, rules, read.language) }
     await db.query(
       `insert into search_query_cache (normalized_query, intent, source) values ($1, $2, 'ai')
        on conflict (normalized_query) do update set intent = excluded.intent, created_at = now()`,
@@ -54,6 +54,8 @@ function kidsOccasion(rules: SearchIntent, ai: SearchIntent): Pick<SearchIntent,
     // As sure as the rules are: a sure kids birthday keeps other events out.
     return { occasion: 'kids_birthday', occasionConfidence: Math.max(rules.occasionConfidence, ai.occasionConfidence ?? 0) }
   }
+  // "janmdin ke bina hindi mein": an occasion word the rules know for sure is kept when the AI found no occasion.
+  if (!ai.occasion && rules.occasion && rules.occasionConfidence >= 1) return { occasion: rules.occasion, occasionConfidence: rules.occasionConfidence }
   return { occasion: ai.occasion, occasionConfidence: ai.occasionConfidence }
 }
 
@@ -68,15 +70,33 @@ function withRuleAssets(rules: SearchIntent, ai: SearchIntent): string[] {
   return [...new Set([...(ai.assets ?? []), ...named])]
 }
 
+/** The same for a theme: "7th birthday sanrio theme" keeps Hello Kitty when the AI left "sanrio" as a word. */
+function withRuleThemes(rules: SearchIntent, ai: SearchIntent): string[] {
+  const keywords = new Set((ai.keywords ?? []).map((k) => k.toLowerCase()))
+  const named = rules.themes.filter((id) => THEME_BY_ID.get(id)?.phrases.some((phrase) => keywords.has(phrase)))
+  return [...new Set([...(ai.themes ?? []), ...named])]
+}
+
 /**
- * Plain facts the rules read for sure are kept when the AI left them out: a photo ("4 pics of baby") and a second
- * occasion next to the same main one ("birthday thank you invitation": birthday cards that say thank you).
+ * Plain facts the rules read for sure are kept when the AI left them out: a photo ("4 pics of baby"), a second
+ * occasion next to the same main one ("birthday thank you invitation": birthday cards that say thank you) and, on a
+ * birthday, the gender ("birthday for men").
  */
 function withRuleReading(rules: SearchIntent, ai: SearchIntent): SearchIntent {
   const also = rules.occasion && rules.occasion === ai.occasion
     ? rules.alsoOccasions.filter((o) => o !== ai.occasion && !(ai.alsoOccasions ?? []).includes(o))
     : []
-  return { ...ai, hasPhoto: ai.hasPhoto ?? rules.hasPhoto, alsoOccasions: [...(ai.alsoOccasions ?? []), ...also] }
+  // "birthday for men, masculine": on a birthday the rules gender is kept when the AI left it out. On baby events the
+  // AI may leave it out on purpose ("mom to be": the parent, not the baby).
+  const gender = ai.gender ?? (ai.occasion === 'birthday' && rules.occasion === 'birthday' ? rules.gender : null)
+  // The gender word itself ("men") is then understood, not a word the card must print.
+  const genderWords = new Set([
+    ...(gender ? GENDER_BY_ID.get(gender)?.phrases ?? [] : []),
+    // "papa ke janmdin": the person word that made it an adult birthday is understood too.
+    ...(rules.audience === 'adults' ? ADULT_PERSON_WORDS : []),
+  ])
+  const keywords = (ai.keywords ?? []).filter((k) => !genderWords.has(k.toLowerCase()) || DESIGN_GENDER_WORDS.has(k.toLowerCase()))
+  return { ...ai, gender, keywords, hasPhoto: ai.hasPhoto ?? rules.hasPhoto, alsoOccasions: [...(ai.alsoOccasions ?? []), ...also] }
 }
 
 /**
