@@ -11,4 +11,4 @@ Why and when behavior changed, per area, newest first. Rules in .ai/rules say ho
 | src/app/search/**, src/components/search/** | .ai/decisions/src-app-search.md | 5 | 2026-11-24 |
 | src/components/search/how-it-works/** | .ai/decisions/src-components-search-how-it-works.md | 3 | 2026-11-20 |
 | src/components/search/** | .ai/decisions/src-components-search.md | 1 | 2026-11-18 |
-| src/lib/search/**, src/components/search/**, src/app/search/** | .ai/decisions/src-lib-search.md | 27 | 2026-11-26 |
+| src/lib/search/**, src/components/search/**, src/app/search/** | .ai/decisions/src-lib-search.md | 28 | 2026-11-26 |

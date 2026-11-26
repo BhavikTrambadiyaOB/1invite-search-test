@@ -7,6 +7,11 @@ paths:
 
 # Src Lib Search decisions
 
+## 2026-11-26 · Asked card type ranks before themes and age
+- **Why:** v3 phase 2: "save the date quinceanera, sweet, fiesta" had no Save the Date card in the top 12, because the card type was an "other detail" after themes (fiesta) and the printed age (15), and none of the 12 quinceañera save-the-dates has either.
+- **What:** New ladder rung kind_match right after the occasion tier and separate kinds: when the query names a card type other than Invitation (Save the Date, Greeting Card, Announcement), those cards come first; themes and age order them within. Snapshot: only card-type queries changed (quinceañera save the date top 8 all Save the Date, mens / teen birthday save the date, wishes greetings). "save the date for 6th birthday boys" now shows save-the-dates (no 6th one exists) before 6th boy invitations.
+- **Files:** `src/lib/search/search-templates.ts`
+
 ## 2026-11-26 · Hindi/Urdu person and birthday words, missing theme spellings
 - **Why:** v3 phase 2 feedback: "wish you happy birthday bhai" showed female designs; janmdin / salgirah were not read as birthday; orange plaid, chess, kingship, spiderman and my melody found the wrong cards though matching tags existed. User chose the quick reading fixes.
 - **What:** bhai, bhaiya, bhaijaan, bro read as boy; didi, behen, bahan, sis as girl. janmdin / janamdin / salgirah / salgira are birthday words; shaadi ki/ke salgirah is a wedding anniversary. Spellings added to learned terms by taxonomy entries with the same id: plaid / tartan / buffalo check → Gingham, my melody / sanrio → Hello Kitty, spiderman / spidey → Spider Man, chess / checkmate → Chess Piece, kingship / kings / kingdom → Princess & Royal. resolve-intent keeps a sure rules occasion when the AI found none, a rules theme the AI left as a keyword, and drops adult person words ("papa") from AI keywords on an adult birthday. "Invitation" is never offered as a card type chip. npm run search:vocab-seed also loaded 77 earlier taxonomy spellings never seeded (trampoline / jump place, aqiqa, debutante, bakrid…). Snapshot (AI off) vs previous: only target queries changed; kingdom royal crown 1→113 direct, shaadi ke salgirah now Wedding Anniversary. "melody" alone stays a word (music). Salgirah religious reading (noor mowlana) left for the user.

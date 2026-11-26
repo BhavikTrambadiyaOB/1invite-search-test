@@ -157,7 +157,7 @@ async function bestSimilarity(qvec: string): Promise<number | null> {
  * filtered search that finds nothing stays empty: that is a real answer.
  */
 /** The sorting ladder (see .ai/rules): results, and the near results tag suggestions fall back to. */
-const RANK_ORDER = `selection_hits desc, tier desc, separate_kind asc, subject_hits desc, subject_tags desc, subject_lead desc,
+const RANK_ORDER = `selection_hits desc, tier desc, separate_kind asc, kind_match desc, subject_hits desc, subject_tags desc, subject_lead desc,
   design_hits desc, color_strength desc, price_match desc, milestone_state desc, milestone_distance asc, age_tie asc,
   other_hits desc, niche asc, banded_score desc, score desc, created_at desc, template_id`
 
@@ -633,6 +633,9 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
     saysCard && !saysInvitation && !intent.docType && occDef && (CARD_MEANS_GREETING_GROUPS as readonly string[]).includes(occDef.group)
       ? `(case when doc_type = 'greeting' then ${RANKING.cardGreetingBonus} else 0 end)`
       : '0'
+  // "save the date quinceanera, sweet, fiesta": the card type the query names (not Invitation, which nearly every card
+  // is) says what the card is, so it ranks before themes and the printed age, which the editor can change.
+  const kindMatch = intent.docType && intent.docType !== 'invitation' ? `coalesce(doc_type = ${p.add(intent.docType)}, false)::int` : '0'
   // Zodiac cards fit any birthday by meaning and are new; unless the query or a sidebar pick asks for them, they
   // come after the other cards that match equally well.
   const paddedQuery = ` ${normalizeQuery(query)} `
@@ -656,7 +659,7 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
              ${relevance} as relevance, ${freshness} as freshness, quality_score as quality,
              ${milestoneBonus} + ${alsoBonus} + ${greetingBonus} as milestone_bonus, ${textRank} as text_rank, ${tier} as tier,
              ${detailHits} as detail_hits,
-             ${separateKind} as separate_kind, ${subjectHits} as subject_hits, ${subjectTagHits} as subject_tags, ${subjectLead} as subject_lead,
+             ${separateKind} as separate_kind, ${kindMatch} as kind_match, ${subjectHits} as subject_hits, ${subjectTagHits} as subject_tags, ${subjectLead} as subject_lead,
              ${designHits} as design_hits, ${colorStrength} as color_strength, ${priceMatch} as price_match, ${otherHits} as other_hits, ${niche} as niche,
              ${requestedHits} as requested_hits, ${sameOccasion} as same_occasion,
              ${milestoneState} as milestone_state, ${milestoneDistance} as milestone_distance, ${ageTie} as age_tie,
@@ -675,7 +678,7 @@ async function runSearch({ query: rawQuery, filters: rawFilters = {}, page = 1, 
     final as (
       select *, least(${weights.relevance} * relevance + milestone_bonus,
                       max(${weights.relevance} * relevance + milestone_bonus)
-                        over (partition by selection_hits, tier, separate_kind, subject_hits, subject_tags, subject_lead, design_hits, color_strength, price_match, milestone_state, other_hits) - ${RANKING.relevanceBand})
+                        over (partition by selection_hits, tier, separate_kind, kind_match, subject_hits, subject_tags, subject_lead, design_hits, color_strength, price_match, milestone_state, other_hits) - ${RANKING.relevanceBand})
                 + ${weights.freshness} * freshness + ${weights.quality} * quality as banded_score
         from scored where ${passes()}
     ),
